@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Calendar, Apple, Monitor, Eye, ChevronRight, RefreshCw } from 'lucide-react'
+import { Calendar, Clock, Apple, Monitor, Eye, ChevronRight, RefreshCw } from 'lucide-react'
 import ShiftPicker from '../components/ShiftPicker'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
