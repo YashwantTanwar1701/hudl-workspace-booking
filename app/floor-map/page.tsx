@@ -3,11 +3,12 @@
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { createPortal } from 'react-dom'
 import { useRouter } from 'next/navigation'
-import { Calendar, Clock, Apple, Monitor, Eye, ChevronRight, RefreshCw, Lock } from 'lucide-react'
+import { Calendar, Apple, Monitor, Eye, ChevronRight, RefreshCw } from 'lucide-react'
+import ShiftPicker from '../components/ShiftPicker'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
-import { FLOOR_SECTIONS, ALL_TIME_SLOTS, OS_META, getCurrentTimeSlot, getDefaultEndTime } from '../types'
-import type { Seat, Booking, OsType } from '../types'
+import { FLOOR_SECTIONS, ALL_TIME_SLOTS, OS_META, getCurrentTimeSlot, getDefaultEndTime, getSectionMeta, buildRoomMap, roomNameFromMap } from '../types'
+import type { Seat, Booking, OsType, Room, RoomMap } from '../types'
 
 /* ─── helpers ─── */
 function OsIcon({ os, size = 12 }: { os: OsType; size?: number }) {
@@ -35,8 +36,8 @@ function sectionEmoji(id: string): string {
 /* ─── Blueprint grid layout matching actual floor plan ─── */
 const BLUEPRINT = [
   // Top: large lanes
-  { id: 'server-room-lane',  col: 1,  row: 1,  cs: 8,  rs: 8,  label: 'Server\nRoom Lane' },
   { id: 'town-hall-lane',    col: 9,  row: 1,  cs: 8,  rs: 8,  label: 'Town Hall\nLane' },
+  { id: 'server-room-lane',  col: 1,  row: 1,  cs: 8,  rs: 8,  label: 'Server\nRoom Lane' },
   { id: 'hr-it-lane',        col: 17, row: 1,  cs: 6,  rs: 8,  label: 'HR/IT\nRoom Lane' },
   // Right side: HR room + cafeteria
   { id: 'hr-ops-it',         col: 23, row: 1,  cs: 3,  rs: 4,  label: 'HR/OPS\n/IT' },
@@ -76,8 +77,8 @@ function PortalTooltip({ x, y, children }: { x: number; y: number; children: Rea
 }
 
 /* ─── Seat Tooltip ─── */
-function SeatTip({ seat, windowBooked, isMine, isLocked, allDayBookings }: {
-  seat: Seat; windowBooked: boolean; isMine: boolean; isLocked: boolean; allDayBookings: Booking[]
+function SeatTip({ seat, windowBooked, isMine, allDayBookings }: {
+  seat: Seat; windowBooked: boolean; isMine: boolean; allDayBookings: Booking[]
 }) {
   const sec = FLOOR_SECTIONS.find(s => s.id === seat.section)
   const seatBks = allDayBookings
@@ -92,14 +93,16 @@ function SeatTip({ seat, windowBooked, isMine, isLocked, allDayBookings }: {
   })
   const freeFrom = currentBk ? `Free from ${currentBk.end_time.slice(0, 5)}` : ''
 
-  const statusColor = isLocked ? '#94a3b8' : isMine ? '#a78bfa' : windowBooked ? '#f87171' : '#4ade80'
-  const statusLabel = isLocked ? '🔒 Remote Seat (Locked)' : isMine ? '🟣 Your Booking' : windowBooked ? '🔴 Occupied' : '🟢 Available'
+  const isInactive = !seat.is_active
+  const statusColor = isInactive ? '#94a3b8' : isMine ? '#a78bfa' : windowBooked ? '#f87171' : '#4ade80'
+  const statusLabel = isInactive ? '⛔ Inactive' : isMine ? '🟣 Your Booking' : windowBooked ? '🔴 Occupied' : '🟢 Available'
 
   return (
     <div style={{ background: '#0f172a', color: '#fff', borderRadius: 12, padding: '13px 15px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', fontSize: 12, border: '1px solid rgba(255,255,255,0.1)', position: 'relative' }}>
       <div style={{ fontWeight: 800, fontSize: 15, fontFamily: 'monospace', marginBottom: 4 }}>{seat.seat_number}</div>
       <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 8 }}>{sectionEmoji(seat.section ?? '')} {sec?.label}</div>
       <div style={{ fontSize: 12, fontWeight: 700, color: statusColor, marginBottom: freeFrom ? 6 : 8 }}>{statusLabel}</div>
+      {isInactive && seat.notes && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>📝 {seat.notes}</div>}
       {freeFrom && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={10} /> {freeFrom}</div>}
       {seatBks.length > 0 && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8, marginTop: 4 }}>
@@ -125,7 +128,7 @@ function SeatTip({ seat, windowBooked, isMine, isLocked, allDayBookings }: {
 function SecTip({ sectionId, seats, bookedIds }: { sectionId: string; seats: Seat[]; bookedIds: Set<string> }) {
   const sec = FLOOR_SECTIONS.find(s => s.id === sectionId)
   if (!sec) return null
-  const avail = seats.filter(s => !bookedIds.has(s.id) && !s.is_locked).length
+  const avail = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
   const pct = seats.length > 0 ? avail / seats.length : 1
   const osCounts: Record<string, number> = {}
   seats.forEach(s => { osCounts[s.os_type] = (osCounts[s.os_type] ?? 0) + 1 })
@@ -163,8 +166,8 @@ function Zone({ zone, seats, bookedIds, myIds, allDayBookedIds, allDayBookings, 
   const sec = FLOOR_SECTIONS.find(s => s.id === zone.id)
   if (!sec) return null
 
-  // Count only non-locked available seats
-  const availInWindow = seats.filter(s => !bookedIds.has(s.id) && !s.is_locked).length
+  // Count only active available seats
+  const availInWindow = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
   const pct = seats.length > 0 ? availInWindow / seats.length : 1
   const headerDot = seats.length === 0 ? '#94a3b8' : pct === 0 ? '#ef4444' : pct < 0.35 ? '#f59e0b' : '#22c55e'
 
@@ -203,20 +206,20 @@ function Zone({ zone, seats, bookedIds, myIds, allDayBookedIds, allDayBookings, 
           {seats.map(seat => {
             // KEY FIX: dot color is based ONLY on the time-window query (bookedIds)
             // not allDayBookedIds — so a seat booked at 10:30 won't show red at 18:00
-            const isLocked       = seat.is_locked
+            const isInactive    = !seat.is_active
             const windowBooked   = bookedIds.has(seat.id)
             const mine           = myIds.has(seat.id)
             const isHov          = hovSeat === seat.id
 
-            const bg = isLocked
-              ? '#94a3b8'   // grey — remote/locked seat
+            const bg = isInactive
+              ? '#94a3b8'   // grey — inactive seat
               : mine
               ? '#7c3aed'   // purple — my booking
               : windowBooked
               ? '#ef4444'   // red — occupied this window
               : '#22c55e'   // green — available
 
-            const border = isLocked ? '#64748b' : mine ? '#5b21b6' : windowBooked ? '#b91c1c' : '#15803d'
+            const border = isInactive ? '#64748b' : mine ? '#5b21b6' : windowBooked ? '#b91c1c' : '#15803d'
 
             return (
               <div
@@ -251,13 +254,14 @@ function Zone({ zone, seats, bookedIds, myIds, allDayBookedIds, allDayBookings, 
 function FloorMapInner() {
   const { user } = useAuth()
   const router = useRouter()
-  const today = new Date().toISOString().split('T')[0]
+  const today = new Date().toLocaleDateString('en-CA')
 
   // Default to CURRENT time on page load — key fix
   const initStart = getCurrentTimeSlot()
   const initEnd   = getDefaultEndTime(initStart)
 
   const [seats,          setSeats]          = useState<Seat[]>([])
+  const [roomMap,        setRoomMap]        = useState<RoomMap>({})
   const [bookings,       setBookings]       = useState<Booking[]>([])
   const [allDayBookings, setAllDayBookings] = useState<Booking[]>([])
   const [loading,        setLoading]        = useState(true)
@@ -271,14 +275,19 @@ function FloorMapInner() {
   const [secTip,         setSecTip]         = useState<{ id: string; x: number; y: number } | null>(null)
   const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => { fetchSeats() }, [])
+  useEffect(() => { fetchSeats(); fetchRooms() }, [])
   useEffect(() => { fetchBookings() }, [date, startTime, endTime])
   useEffect(() => { fetchAllDay() }, [date])
 
   async function fetchSeats() {
-    const { data } = await supabase.from('seats').select('*').eq('is_active', true).order('seat_number')
+    const { data } = await supabase.from('seats').select('*').order('seat_number')
     if (data) setSeats(data as Seat[])
     setLoading(false)
+  }
+
+  async function fetchRooms() {
+    const { data } = await supabase.from('room').select('*')
+    if (data) setRoomMap(buildRoomMap(data as Room[]))
   }
 
   async function fetchBookings() {
@@ -312,7 +321,7 @@ function FloorMapInner() {
   const filteredSeats = (id: string) => seats.filter(s => s.section === id && (!filterOs || s.os_type === filterOs))
 
   const totalBooked = seats.filter(s => bookedIds.has(s.id)).length
-  const totalAvail  = seats.filter(s => !bookedIds.has(s.id) && !s.is_locked).length
+  const totalAvail  = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
 
   const onSeatHover = useCallback((seat: Seat, x: number, y: number) => {
     if (tipTimer.current) clearTimeout(tipTimer.current)
@@ -325,7 +334,6 @@ function FloorMapInner() {
   }, [])
   const onSecLeave  = useCallback(() => { tipTimer.current = setTimeout(() => setSecTip(null), 80) }, [])
 
-  const endSlots = ALL_TIME_SLOTS.filter(t => t > startTime)
 
   return (
     <div style={{ height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column', background: '#f1f5f9', overflow: 'hidden' }}>
@@ -346,19 +354,14 @@ function FloorMapInner() {
               <input type="date" value={date} onChange={e => setDate(e.target.value)}
                 style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }} />
             </div>
-            {/* Time range */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 10px' }}>
-              <Clock size={12} color="#94a3b8" />
-              <select value={startTime} onChange={e => { setStartTime(e.target.value); setBookings([]) }}
-                style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}>
-                {ALL_TIME_SLOTS.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <span style={{ color: '#cbd5e1', fontSize: 11 }}>→</span>
-              <select value={endTime} onChange={e => { setEndTime(e.target.value); setBookings([]) }}
-                style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}>
-                {endSlots.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
+            {/* Shift / Time picker */}
+            <ShiftPicker
+              date={date}
+              startTime={startTime} endTime={endTime} isOvernight={false}
+              onStartChange={t => { setStartTime(t); setBookings([]) }}
+              onEndChange={t => { setEndTime(t); setBookings([]) }}
+              onOvernightChange={() => {}}
+            />
             {/* OS filter */}
             <div style={{ display: 'flex', gap: 2, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 3 }}>
               {([['', 'All'], ['mac', 'Mac'], ['windows', 'Win'], ['other', 'Seat Only']] as const).map(([val, label]) => (
@@ -383,7 +386,7 @@ function FloorMapInner() {
           {[
             { label: 'Available', val: loading ? '…' : totalAvail,        dot: '#22c55e', color: '#15803d' },
             { label: 'Occupied',  val: loading ? '…' : totalBooked,       dot: '#ef4444', color: '#991b1b' },
-            { label: 'Locked',    val: loading ? '…' : seats.filter(s => s.is_locked).length, dot: '#94a3b8', color: '#475569' },
+            { label: 'Inactive',  val: loading ? '…' : seats.filter(s => !s.is_active).length, dot: '#94a3b8', color: '#475569' },
             { label: 'Total',     val: loading ? '…' : seats.length,      dot: '#64748b', color: '#374151' },
           ].map(s => (
             <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
@@ -400,7 +403,7 @@ function FloorMapInner() {
               { c: '#22c55e', b: '#15803d', l: 'Available' },
               { c: '#ef4444', b: '#b91c1c', l: 'Occupied' },
               { c: '#7c3aed', b: '#5b21b6', l: 'Mine' },
-              { c: '#94a3b8', b: '#64748b', l: 'Locked' },
+              { c: '#94a3b8', b: '#64748b', l: 'Inactive' },
             ].map(lg => (
               <div key={lg.l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#475569' }}>
                 <div style={{ width: 10, height: 10, borderRadius: 2, background: lg.c, border: `1.5px solid ${lg.b}` }} />
@@ -416,7 +419,7 @@ function FloorMapInner() {
           <button onClick={() => setFilterSection('')} style={{ padding: '3px 10px', borderRadius: 99, border: `1.5px solid ${filterSection === '' ? '#1e3a5f' : '#e2e8f0'}`, background: filterSection === '' ? '#1e3a5f' : '#fff', color: filterSection === '' ? '#fff' : '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0 }}>All</button>
           {FLOOR_SECTIONS.map(sec => {
             const ss = filteredSeats(sec.id)
-            const avail = ss.filter(s => !bookedIds.has(s.id) && !s.is_locked).length
+            const avail = ss.filter(s => !bookedIds.has(s.id) && s.is_active).length
             const active = filterSection === sec.id
             return (
               <button key={sec.id} onClick={() => setFilterSection(active ? '' : sec.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, border: `1.5px solid ${active ? sec.accent : '#e2e8f0'}`, background: active ? sec.color : '#fff', color: active ? '#0f172a' : '#64748b', fontSize: 11, fontWeight: active ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.15s' }}>
@@ -453,7 +456,7 @@ function FloorMapInner() {
 
       {seatTip && (
         <PortalTooltip x={seatTip.x} y={seatTip.y}>
-          <SeatTip seat={seatTip.seat} windowBooked={bookedIds.has(seatTip.seat.id)} isMine={myIds.has(seatTip.seat.id)} isLocked={seatTip.seat.is_locked} allDayBookings={allDayBookings} />
+          <SeatTip seat={seatTip.seat} windowBooked={bookedIds.has(seatTip.seat.id)} isMine={myIds.has(seatTip.seat.id)} allDayBookings={allDayBookings} />
         </PortalTooltip>
       )}
       {secTip && (

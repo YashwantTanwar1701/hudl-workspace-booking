@@ -10,8 +10,8 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
-import { FLOOR_SECTIONS, OS_META } from '../types'
-import type { Booking, Seat, OsType } from '../types'
+import { FLOOR_SECTIONS, OS_META, getSectionMeta, buildRoomMap } from '../types'
+import type { Booking, Seat, OsType, Room, RoomMap } from '../types'
 
 type BFull = Booking & { seat: Seat }
 
@@ -88,13 +88,19 @@ export default function MyBookingsPage() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
   const [bookings,     setBookings]     = useState<BFull[]>([])
+  const [roomMap,      setRoomMap]      = useState<RoomMap>({})
   const [loading,      setLoading]      = useState(true)
   const [filter,       setFilter]       = useState<'upcoming'|'past'|'all'>('upcoming')
   const [cancelTarget, setCancelTarget] = useState<BFull | null>(null)
   const [cancelling,   setCancelling]   = useState(false)
 
   useEffect(() => { if (!authLoading && !user) router.push('/auth') }, [user, authLoading])
-  useEffect(() => { if (user) fetchBookings() }, [user])
+  useEffect(() => { if (user) { fetchBookings(); fetchRooms() } }, [user])
+
+  async function fetchRooms() {
+    const { data } = await supabase.from('room').select('*')
+    if (data) setRoomMap(buildRoomMap(data as Room[]))
+  }
 
   async function fetchBookings() {
     setLoading(true)
@@ -207,7 +213,7 @@ export default function MyBookingsPage() {
                       <span style={{ color: '#e2e8f0' }}>·</span>
                       <span style={{ color: '#94a3b8' }}>{dur}</span>
                       <span style={{ color: '#e2e8f0' }}>·</span>
-                      <span style={{ color: '#94a3b8' }}>{sec?.label||b.seat?.section}</span>
+                      <span style={{ color: '#94a3b8' }}>{(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null) || sec?.label || b.seat?.section}</span>
                     </div>
                   </div>
                   {upcoming && (

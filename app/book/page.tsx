@@ -3,19 +3,20 @@
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
-  Apple, Monitor, Calendar, Clock, Filter, Search,
+  Apple, Monitor, Calendar, Clock, Filter,
   ShoppingCart, Trash2, Zap, CheckCircle2, Lock,
   Moon, Info, Users, LayoutGrid, RefreshCw,
   AlertCircle, MapPin, Timer, ChevronDown, ChevronUp,
-  X, AlertTriangle
+  X, AlertTriangle, ChevronsUpDown, ChevronsDownUp
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
+import ShiftPicker from '../components/ShiftPicker'
 import { useAuth } from '../components/AuthProvider'
 import {
   FLOOR_SECTIONS, ALL_TIME_SLOTS, NIGHT_SLOTS,
-  OS_META, getValidStartSlots
+  OS_META, getValidStartSlots, getSectionMeta, buildRoomMap, roomNameFromMap
 } from '../types'
-import type { Seat, Booking, OsType } from '../types'
+import type { Seat, Booking, OsType, Room, RoomMap } from '../types'
 
 /* ─── helpers ─── */
 function OsIconSmall({ os, size = 14 }: { os: OsType; size?: number }) {
@@ -125,7 +126,7 @@ function SectionPanel({ section, seats, bookedIds, myIds, selectedIds, onToggle,
   bookedIds: Set<string>; myIds: Set<string>; selectedIds: Set<string>
   onToggle: (s: Seat) => void; collapsed: boolean; onCollapse: () => void; bookings: Booking[]
 }) {
-  const avail = seats.filter(s => !bookedIds.has(s.id) && !s.is_locked).length
+  const avail = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
   const sel   = seats.filter(s => selectedIds.has(s.id)).length
   const pct   = seats.length > 0 ? avail / seats.length : 1
   const fill  = pct === 0 ? '#ef4444' : pct < 0.35 ? '#f59e0b' : '#22c55e'
@@ -168,7 +169,7 @@ function SectionPanel({ section, seats, bookedIds, myIds, selectedIds, onToggle,
           ) : (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
               {seats.map(seat => {
-                if (seat.is_locked) return (
+                if (!seat.is_active) return (
                   <div key={seat.id} title="Remote seat — cannot be booked" style={{ width: 64, height: 64, borderRadius: 10, border: '2px solid #e2e8f0', background: '#f8fafc', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 3, opacity: 0.5 }}>
                     <Lock size={13} color="#94a3b8" />
                     <span style={{ fontSize: 8, fontFamily: 'monospace', color: '#94a3b8' }}>{seat.seat_number}</span>
@@ -249,7 +250,7 @@ function BookInner() {
   const { user } = useAuth()
   const router   = useRouter()
   const params   = useSearchParams()
-  const today    = new Date().toISOString().split('T')[0]
+  const today    = new Date().toLocaleDateString('en-CA')  // YYYY-MM-DD in local timezone
 
   const [date,          setDate]          = useState<string>(today)
   const [startTime,     setStartTime]     = useState<string>('09:00')
@@ -260,6 +261,7 @@ function BookInner() {
   const endDate        = isOvernight ? addDays(date, 1) : date
 
   const [seats,         setSeats]         = useState<Seat[]>([])
+  const [roomMap,       setRoomMap]       = useState<RoomMap>({})
   const [bookings,      setBookings]       = useState<Booking[]>([])
   const [loadingSeats,  setLoadingSeats]  = useState(true)
   const [loadingBks,    setLoadingBks]    = useState(false)
@@ -268,19 +270,28 @@ function BookInner() {
   const [error,         setError]         = useState('')
   const [confirmOpen,   setConfirmOpen]   = useState(false)
   const [filterOs,      setFilterOs]      = useState('')
+  const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null)
   const [filterSec,     setFilterSec]     = useState(params.get('section') ?? '')
-  const [search,        setSearch]        = useState('')
   const [selectedIds,   setSelectedIds]   = useState<Set<string>>(new Set())
   const [collapsed,     setCollapsed]     = useState<Record<string, boolean>>({})
 
   useEffect(() => { if (!user) router.push('/auth') }, [user, router])
-  useEffect(() => { fetchSeats() }, [])
+  // Expand / collapse all
+  const expandAll = () => setCollapsed(Object.fromEntries(FLOOR_SECTIONS.map(s => [s.id, false])))
+  const collapseAll = () => setCollapsed(Object.fromEntries(FLOOR_SECTIONS.map(s => [s.id, true])))
+
+  useEffect(() => { fetchSeats(); fetchRooms() }, [])
   useEffect(() => { fetchBookings() }, [date, effectiveStart, endTime, isOvernight])
 
   async function fetchSeats() {
-    const { data } = await supabase.from('seats').select('*').eq('is_active', true).order('seat_number')
+    const { data } = await supabase.from('seats').select('*').order('seat_number')
     if (data) setSeats(data as Seat[])
     setLoadingSeats(false)
+  }
+
+  async function fetchRooms() {
+    const { data } = await supabase.from('room').select('*')
+    if (data) setRoomMap(buildRoomMap(data as Room[]))
   }
 
   async function fetchBookings() {
@@ -302,7 +313,7 @@ function BookInner() {
   const myIds     = new Set(bookings.filter(b => b.user_id === user?.id).map(b => b.seat_id))
 
   const toggleSeat = useCallback((seat: Seat) => {
-    if (seat.is_locked) return
+    if (!seat.is_active) return
     if (bookedIds.has(seat.id) && !myIds.has(seat.id)) return
     setSelectedIds(prev => { const n = new Set(prev); n.has(seat.id) ? n.delete(seat.id) : n.add(seat.id); return n })
   }, [bookedIds, myIds])
@@ -317,10 +328,10 @@ function BookInner() {
     setSubmitting(true); setError('')
     const sel = seats.filter(s => selectedIds.has(s.id))
     const inserts = sel.flatMap(seat => isOvernight ? [
-      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:59', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:59` },
-      { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: endTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${endTime}:00` },
+      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:59', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:59`, shift_id: selectedShiftId },
+      { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: endTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${endTime}:00`, shift_id: selectedShiftId },
     ] : [
-      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: endTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${endTime}:00` },
+      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: endTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${endTime}:00`, shift_id: selectedShiftId },
     ])
     const { error: err } = await supabase.from('bookings').insert(inserts)
     if (err) setError(err.message.includes('overlap') ? 'One or more seats conflict with existing bookings.' : err.message)
@@ -328,9 +339,9 @@ function BookInner() {
     setSubmitting(false)
   }
 
-  const visSections = FLOOR_SECTIONS.filter(s => (!filterSec || s.id === filterSec) && (!search || s.label.toLowerCase().includes(search.toLowerCase())))
+  const visSections = FLOOR_SECTIONS.filter(s => !filterSec || s.id === filterSec)
   const fSeats      = (id: string) => seats.filter(s => s.section === id && (!filterOs || s.os_type === filterOs))
-  const totalAvail  = seats.filter(s => !bookedIds.has(s.id) && !s.is_locked).length
+  const totalAvail  = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
   const dur         = fmtDur(minutesBetween(effectiveStart, endTime, isOvernight))
   const noSlots     = date === today && validStarts.length === 0
 
@@ -374,28 +385,25 @@ function BookInner() {
             </div>
           )}
 
-          {/* Filters */}
-          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', paddingBottom: 14 }}>
+          {/* Row 1: Date + Shift picker */}
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', paddingBottom: 8 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '7px 12px' }}>
               <Calendar size={12} color="#3b82f6" />
               <input type="date" value={date} min={today} onChange={e => { setDate(e.target.value); setSelectedIds(new Set()) }} style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }} />
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '7px 12px' }}>
-              <Clock size={12} color="#94a3b8" />
-              <select value={effectiveStart} onChange={e => { setStartTime(e.target.value); setSelectedIds(new Set()) }} disabled={noSlots} style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}>
-                {validStarts.length === 0 ? <option>No slots</option> : validStarts.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-              <span style={{ color: '#cbd5e1', fontSize: 11 }}>→</span>
-              <select value={endTime} onChange={e => { setEndTime(e.target.value); setSelectedIds(new Set()) }} disabled={noSlots} style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}>
-                {isOvernight ? NIGHT_SLOTS.map(t => <option key={t} value={t}>{t} (+1)</option>) : ALL_TIME_SLOTS.filter(t => t > effectiveStart).map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </div>
-            <button onClick={() => { setIsOvernight(v => !v); setSelectedIds(new Set()) }} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 12px', borderRadius: 10, border: `1.5px solid ${isOvernight ? '#7c3aed' : '#e2e8f0'}`, background: isOvernight ? '#ede9fe' : '#f8fafc', color: isOvernight ? '#7c3aed' : '#64748b', cursor: 'pointer', fontSize: 12, fontWeight: isOvernight ? 700 : 500, fontFamily: 'inherit' }}>
-              <Moon size={12} /> Night Shift {isOvernight && <span style={{ fontSize: 10, opacity: 0.8 }}>→ {endDate}</span>}
-            </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '7px 12px', borderRadius: 10, background: '#f0f9ff', border: '1px solid #bae6fd', color: '#0369a1', fontSize: 12, fontWeight: 600 }}>
-              <Timer size={12} /> {dur}
-            </div>
+            <ShiftPicker
+              date={date}
+              startTime={effectiveStart} endTime={endTime} isOvernight={isOvernight}
+              onStartChange={t => { setStartTime(t); setSelectedIds(new Set()) }}
+              onEndChange={t => { setEndTime(t); setSelectedIds(new Set()) }}
+              onOvernightChange={v => { setIsOvernight(v); setSelectedIds(new Set()) }}
+              onShiftIdChange={id => setSelectedShiftId(id)}
+              validStartSlots={validStarts}
+              disabled={noSlots}
+            />
+          </div>
+          {/* Row 2: OS filter + Section filter + Expand/Collapse */}
+          <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', paddingBottom: 14 }}>
             {/* OS filter */}
             <div style={{ display: 'flex', gap: 2, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: 3 }}>
               {([['', 'All'], ['mac', 'Mac'], ['windows', 'Win'], ['other', 'Seat Only']] as const).map(([val, label]) => (
@@ -411,9 +419,14 @@ function BookInner() {
                 {FLOOR_SECTIONS.map(s => <option key={s.id} value={s.id}>{s.shortLabel}</option>)}
               </select>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '7px 12px', flex: 1, minWidth: 140 }}>
-              <Search size={11} color="#94a3b8" />
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search sections…" style={{ fontSize: 12, color: '#374151', background: 'transparent', border: 'none', outline: 'none', width: '100%' }} />
+            {/* Expand / Collapse All */}
+            <div style={{ display: 'flex', gap: 5, marginLeft: 'auto' }}>
+              <button onClick={expandAll} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9, border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', color: '#475569' }}>
+                <ChevronsUpDown size={13} /> Expand All
+              </button>
+              <button onClick={collapseAll} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 9, border: '1.5px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 12, fontWeight: 600, fontFamily: 'inherit', color: '#475569' }}>
+                <ChevronsDownUp size={13} /> Collapse All
+              </button>
             </div>
           </div>
         </div>
@@ -470,7 +483,7 @@ function BookInner() {
                         <div style={{ width: 26, height: 26, borderRadius: 6, background: sec?.color ?? '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0 }}>{sectionEmoji(seat.section ?? '')}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', fontFamily: 'monospace' }}>{seat.seat_number}</div>
-                          <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sec?.shortLabel}</div>
+                          <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(seat.room_id ? roomMap[seat.room_id]?.name : null) || sec?.shortLabel}</div>
                         </div>
                         <button onClick={() => toggleSeat(seat)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: 2 }}><Trash2 size={11} /></button>
                       </div>
@@ -511,7 +524,7 @@ function BookInner() {
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 9 }}>Quick Availability</div>
             {FLOOR_SECTIONS.slice(0, 10).map(sec => {
               const ss = seats.filter(s => s.section === sec.id)
-              const avail = ss.filter(s => !bookedIds.has(s.id) && !s.is_locked).length
+              const avail = ss.filter(s => !bookedIds.has(s.id) && s.is_active).length
               const pct = ss.length > 0 ? avail / ss.length : 1
               return (
                 <div key={sec.id} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>

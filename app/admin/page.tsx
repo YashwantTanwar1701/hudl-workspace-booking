@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
-import { FLOOR_SECTIONS, OS_META } from '../types'
-import type { Seat, Booking, UserProfile, OsType } from '../types'
+import { FLOOR_SECTIONS, OS_META, getSectionMeta, buildRoomMap } from '../types'
+import type { Seat, Booking, UserProfile, OsType, Room, RoomMap } from '../types'
 
 function sectionEmoji(id: string): string {
   if (id.includes('server'))       return '🖥️'
@@ -39,6 +39,7 @@ export default function AdminPage() {
   const router = useRouter()
   const [tab, setTab] = useState<Tab>('overview')
   const [seats, setSeats] = useState<Seat[]>([])
+  const [roomMap, setRoomMap] = useState<RoomMap>({})
   const [bookings, setBookings] = useState<BFull[]>([])
   const [users, setUsers] = useState<UserProfile[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,7 +47,7 @@ export default function AdminPage() {
   const [inviteSending, setInviteSending] = useState(false)
   const [inviteMsg, setInviteMsg] = useState('')
   const [editSeat, setEditSeat] = useState<Seat | null>(null)
-  const [newSeat, setNewSeat] = useState({ seat_number:'', section:'server-room-lane', os_type:'windows' as OsType, has_machine:true, machine_number:'', floor:'3', is_locked:false })
+  const [newSeat, setNewSeat] = useState({ seat_number:'', section:'server-room-lane', os_type:'windows' as OsType, has_machine:true, machine_number:'', floor:'3', is_active:true, notes:'', room_id:1 })
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
@@ -55,14 +56,16 @@ export default function AdminPage() {
 
   async function fetchAll() {
     setLoading(true)
-    const [s, b, u] = await Promise.all([
+    const [s, b, u, r] = await Promise.all([
       supabase.from('seats').select('*').order('seat_number'),
       supabase.from('bookings').select('*, seat:seats(*), user:users(*)').order('created_at', { ascending: false }).limit(500),
       supabase.from('users').select('*').order('created_at', { ascending: false }),
+      supabase.from('room').select('*'),
     ])
     if (s.data) setSeats(s.data as Seat[])
     if (b.data) setBookings(b.data as BFull[])
     if (u.data) setUsers(u.data as UserProfile[])
+    if (r.data) setRoomMap(buildRoomMap(r.data as Room[]))
     setLoading(false)
   }
 
@@ -74,7 +77,7 @@ export default function AdminPage() {
     } else {
       const { error } = await supabase.from('seats').insert({ ...newSeat, machine_number: newSeat.machine_number ? parseInt(newSeat.machine_number) : null })
       if (error) setMsg(error.message)
-      else { setMsg('Seat added ✓'); setNewSeat({ seat_number:'', section:'server-room-lane', os_type:'windows', has_machine:true, machine_number:'', floor:'3', is_locked:false }) }
+      else { setMsg('Seat added ✓'); setNewSeat({ seat_number:'', section:'server-room-lane', os_type:'windows', has_machine:true, machine_number:'', floor:'3', is_active:true, notes:'', room_id:1 }) }
     }
     setSaving(false); await fetchAll()
   }
@@ -84,10 +87,6 @@ export default function AdminPage() {
     await fetchAll()
   }
 
-  async function toggleSeatLocked(seat: Seat) {
-    await supabase.from('seats').update({ is_locked: !seat.is_locked }).eq('id', seat.id)
-    await fetchAll()
-  }
 
   async function cancelBooking(id: string) {
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
@@ -105,7 +104,7 @@ export default function AdminPage() {
   const activeSections = FLOOR_SECTIONS.map(sec => {
     const ss = seats.filter(s => s.section === sec.id)
     const active = bookings.filter(b => b.status === 'active' && ss.some(s => s.id === b.seat_id))
-    return { sec, seats: ss, active: active.length, avail: ss.filter(s => s.is_active && !s.is_locked).length }
+    return { sec, seats: ss, active: active.length, avail: ss.filter(s => s.is_active).length }
   })
 
   if (authLoading || loading) return (
@@ -137,7 +136,7 @@ export default function AdminPage() {
               {[
                 { label: 'Total Seats', value: seats.length, color: '#2563eb', bg: '#eff6ff' },
                 { label: 'Active Seats', value: seats.filter(s=>s.is_active).length, color: '#15803d', bg: '#f0fdf4' },
-                { label: 'Locked (Remote)', value: seats.filter(s=>s.is_locked).length, color: '#64748b', bg: '#f8fafc' },
+                { label: 'Inactive', value: seats.filter(s=>!s.is_active).length, color: '#64748b', bg: '#f8fafc' },
                 { label: 'Total Bookings', value: bookings.length, color: '#7c3aed', bg: '#faf5ff' },
                 { label: 'Active Bookings', value: bookings.filter(b=>b.status==='active').length, color: '#15803d', bg: '#f0fdf4' },
                 { label: 'Users', value: users.length, color: '#0369a1', bg: '#f0f9ff' },
@@ -195,7 +194,11 @@ export default function AdminPage() {
                   <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 5 }}>Section</label>
                   <select
                     value={editSeat ? editSeat.section ?? '' : newSeat.section}
-                    onChange={e => editSeat ? setEditSeat({...editSeat,section:e.target.value}) : setNewSeat({...newSeat,section:e.target.value})}
+                    onChange={e => {
+                      const sec = FLOOR_SECTIONS.find(s => s.id === e.target.value)
+                      if (editSeat) setEditSeat({...editSeat, section:e.target.value, room_id: sec?.roomId ?? editSeat.room_id})
+                      else setNewSeat({...newSeat, section:e.target.value, room_id: sec?.roomId ?? newSeat.room_id})
+                    }}
                     style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 7, fontSize: 13, fontFamily: 'inherit', outline: 'none' }}>
                     {FLOOR_SECTIONS.map(s => <option key={s.id} value={s.id}>{sectionEmoji(s.id)} {s.label}</option>)}
                   </select>
@@ -223,9 +226,16 @@ export default function AdminPage() {
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
                 <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: '#475569', cursor: 'pointer' }}>
-                  <input type="checkbox" checked={editSeat ? editSeat.is_locked : newSeat.is_locked} onChange={e => editSeat ? setEditSeat({...editSeat,is_locked:e.target.checked}) : setNewSeat({...newSeat,is_locked:e.target.checked})} />
-                  Locked (Remote — cannot be booked)
+                  <input type="checkbox" checked={editSeat ? editSeat.is_active : newSeat.is_active} onChange={e => editSeat ? setEditSeat({...editSeat,is_active:e.target.checked}) : setNewSeat({...newSeat,is_active:e.target.checked})} />
+                  Active (uncheck to disable booking)
                 </label>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 5 }}>Notes (shown as tooltip when inactive)</label>
+                  <input type="text" placeholder="e.g. Remote seat, Under maintenance"
+                    value={editSeat ? editSeat.notes ?? '' : newSeat.notes}
+                    onChange={e => editSeat ? setEditSeat({...editSeat, notes: e.target.value || null}) : setNewSeat({...newSeat, notes: e.target.value})}
+                    style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 7, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
+                </div>
                 <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
                   {editSeat && <button onClick={() => { setEditSeat(null); setMsg('') }} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 13, fontFamily: 'inherit' }}>Cancel</button>}
                   <button onClick={saveSeat} disabled={saving} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: saving?'#94a3b8':'#1e3a5f', color: '#fff', cursor: saving?'not-allowed':'pointer', fontSize: 13, fontWeight: 600, fontFamily: 'inherit' }}>
@@ -241,7 +251,7 @@ export default function AdminPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Seat #','Section','OS','Machine','Floor','Status','Locked','Actions'].map(h => (
+                      {['Seat #','Section','OS','Machine','Floor','Status','Notes','Actions'].map(h => (
                         <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -253,7 +263,7 @@ export default function AdminPage() {
                         <tr key={seat.id} style={{ borderBottom: '1px solid #f1f5f9', background: i%2===0?'#fff':'#fafafa' }}>
                           <td style={{ padding: '9px 13px', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>{seat.seat_number}</td>
                           <td style={{ padding: '9px 13px', color: '#475569' }}>
-                            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>{sectionEmoji(seat.section||'')} {sec?.shortLabel||seat.section}</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 5 }}>{sectionEmoji(seat.section||'')} {(seat.room_id ? roomMap[seat.room_id]?.name : null) || sec?.shortLabel || seat.section}</span>
                           </td>
                           <td style={{ padding: '9px 13px' }}>
                             <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 99, background: OS_META[seat.os_type as OsType].bg, color: OS_META[seat.os_type as OsType].color }}>{OS_META[seat.os_type as OsType].label}</span>
@@ -263,14 +273,13 @@ export default function AdminPage() {
                           <td style={{ padding: '9px 13px' }}>
                             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: seat.is_active?'#dcfce7':'#f1f5f9', color: seat.is_active?'#15803d':'#64748b', fontWeight: 600 }}>{seat.is_active?'Active':'Inactive'}</span>
                           </td>
-                          <td style={{ padding: '9px 13px' }}>
-                            <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: seat.is_locked?'#fef3c7':'#f1f5f9', color: seat.is_locked?'#92400e':'#64748b', fontWeight: 600 }}>{seat.is_locked?'🔒 Locked':'—'}</span>
+                          <td style={{ padding: '9px 13px', color: '#64748b', fontSize: 12, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {seat.notes || '—'}
                           </td>
                           <td style={{ padding: '9px 13px' }}>
                             <div style={{ display: 'flex', gap: 5 }}>
                               <button onClick={() => setEditSeat(seat)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Edit</button>
                               <button onClick={() => toggleSeatActive(seat)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', color: seat.is_active?'#dc2626':'#15803d' }}>{seat.is_active?'Disable':'Enable'}</button>
-                              <button onClick={() => toggleSeatLocked(seat)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', color: seat.is_locked?'#15803d':'#d97706' }}>{seat.is_locked?'Unlock':'Lock'}</button>
                             </div>
                           </td>
                         </tr>
@@ -300,7 +309,7 @@ export default function AdminPage() {
                     <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9', background: i%2===0?'#fff':'#fafafa', opacity: b.status==='cancelled'?0.6:1 }}>
                       <td style={{ padding: '9px 13px', color: '#475569' }}>{b.user?.name || b.user?.email || '—'}</td>
                       <td style={{ padding: '9px 13px', fontWeight: 700, fontFamily: 'monospace' }}>{b.seat?.seat_number}</td>
-                      <td style={{ padding: '9px 13px', color: '#475569' }}>{FLOOR_SECTIONS.find(s=>s.id===b.seat?.section)?.shortLabel||'—'}</td>
+                      <td style={{ padding: '9px 13px', color: '#475569' }}>{(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null)||FLOOR_SECTIONS.find(s=>s.id===b.seat?.section)?.shortLabel||'—'}</td>
                       <td style={{ padding: '9px 13px', color: '#475569', whiteSpace: 'nowrap' }}>{b.booking_date}</td>
                       <td style={{ padding: '9px 13px', color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{b.start_time.slice(0,5)}–{b.end_time.slice(0,5)}</td>
                       <td style={{ padding: '9px 13px' }}>

@@ -4,8 +4,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
-import { FLOOR_SECTIONS, OS_META } from '../types'
-import type { Booking, Seat, OsType } from '../types'
+import { FLOOR_SECTIONS, OS_META, getSectionMeta, buildRoomMap } from '../types'
+import type { Booking, Seat, OsType, Room, RoomMap } from '../types'
 import {
   TrendingUp, Calendar, Clock, Monitor, Apple,
   Activity, Award, Flame, BarChart2, Download,
@@ -113,7 +113,7 @@ function exportCSV(rows: BFull[], filename: string) {
     const [eh,em] = b.end_time.split(':').map(Number)
     let mins = (eh*60+em)-(sh*60+sm); if(mins<0) mins+=1440
     const sec = FLOOR_SECTIONS.find(s => s.id === b.seat?.section)
-    return [b.seat?.seat_number||'',sec?.label||b.seat?.section||'',b.seat?.os_type||'',b.seat?.machine_number??'',b.booking_date,b.start_time.slice(0,5),b.end_time.slice(0,5),mins,b.status,new Date(b.created_at).toLocaleString('en-IN')].map(v=>`"${v}"`).join(',')
+    return [b.seat?.seat_number||'',(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null)||sec?.label||b.seat?.section||'',b.seat?.os_type||'',b.seat?.machine_number??'',b.booking_date,b.start_time.slice(0,5),b.end_time.slice(0,5),mins,b.status,new Date(b.created_at).toLocaleString('en-IN')].map(v=>`"${v}"`).join(',')
   })
   const csv = [headers.join(','),...lines].join('\n')
   const url = URL.createObjectURL(new Blob([csv],{type:'text/csv'}))
@@ -126,6 +126,7 @@ export default function DashboardPage() {
   const isAdmin = profile?.role === 'admin'
 
   const [bookings,    setBookings]    = useState<BFull[]>([])
+  const [roomMap,      setRoomMap]     = useState<RoomMap>({})
   const [allBookings, setAllBookings] = useState<BFull[]>([])
   const [loading,     setLoading]     = useState(true)
   const [tab,         setTab]         = useState<'overview'|'patterns'|'sections'|'company'|'history'>('overview')
@@ -138,7 +139,12 @@ export default function DashboardPage() {
   const { from, to } = getRange(preset, customFrom, customTo)
 
   useEffect(() => { if (!authLoading && !user) router.push('/auth') }, [user, authLoading])
-  useEffect(() => { if (user) fetchData() }, [user, isAdmin, from, to])
+  useEffect(() => { if (user) { fetchData(); fetchRooms() } }, [user, isAdmin, from, to])
+
+  async function fetchRooms() {
+    const { data } = await supabase.from('room').select('*')
+    if (data) setRoomMap(buildRoomMap(data as Room[]))
+  }
 
   async function fetchData() {
     setLoading(true)
@@ -190,7 +196,7 @@ export default function DashboardPage() {
       if (histFilter !== 'all' && b.status !== histFilter) return false
       if (histSearch) {
         const s = histSearch.toLowerCase()
-        return b.seat?.seat_number?.toLowerCase().includes(s) || b.booking_date.includes(s) || FLOOR_SECTIONS.find(sec=>sec.id===b.seat?.section)?.label.toLowerCase().includes(s)
+        return b.seat?.seat_number?.toLowerCase().includes(s) || b.booking_date.includes(s) || ((b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null)||FLOOR_SECTIONS.find(sec=>sec.id===b.seat?.section)?.label||'').toLowerCase().includes(s)
       }
       return true
     })
