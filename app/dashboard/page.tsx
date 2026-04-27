@@ -113,7 +113,7 @@ function exportCSV(rows: BFull[], filename: string) {
     const [eh,em] = b.end_time.split(':').map(Number)
     let mins = (eh*60+em)-(sh*60+sm); if(mins<0) mins+=1440
     const sec = FLOOR_SECTIONS.find(s => s.id === b.seat?.section)
-    return [b.seat?.seat_number||'',(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null)||sec?.label||b.seat?.section||'',b.seat?.os_type||'',b.seat?.machine_number??'',b.booking_date,b.start_time.slice(0,5),b.end_time.slice(0,5),mins,b.status,new Date(b.created_at).toLocaleString('en-IN')].map(v=>`"${v}"`).join(',')
+    return [b.seat?.seat_number||'',sec?.label||b.seat?.section||'',b.seat?.os_type||'',b.seat?.machine_number??'',b.booking_date,b.start_time.slice(0,5),b.end_time.slice(0,5),mins,b.status,new Date(b.created_at).toLocaleString('en-IN')].map(v=>`"${v}"`).join(',')
   })
   const csv = [headers.join(','),...lines].join('\n')
   const url = URL.createObjectURL(new Blob([csv],{type:'text/csv'}))
