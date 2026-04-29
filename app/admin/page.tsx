@@ -48,7 +48,7 @@ export default function AdminPage() {
   const [inviteSending, setInviteSending] = useState(false)
   const [inviteMsg, setInviteMsg] = useState('')
   const [editSeat, setEditSeat] = useState<Seat | null>(null)
-  const [newSeat, setNewSeat] = useState({ seat_number:'', section:'server-room-lane', os_type:'windows' as OsType, has_machine:true, machine_number:'', floor:'3', is_active:true, notes:'', room_id:1 })
+  const [newSeat, setNewSeat] = useState({ seat_number:'', section:'server-room-lane', os_type:'windows' as OsType, has_machine:true, machine_number:'', is_active:true, notes:'', room_id:1 })
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
   const [search, setSearch] = useState('')
@@ -92,7 +92,7 @@ export default function AdminPage() {
     } else {
       const { error } = await supabase.from('seats').insert({ ...newSeat, machine_number: newSeat.machine_number ? parseInt(newSeat.machine_number) : null })
       if (error) setMsg(error.message)
-      else { setMsg('Seat added ✓'); setNewSeat({ seat_number:'', section:'server-room-lane', os_type:'windows', has_machine:true, machine_number:'', floor:'3', is_active:true, notes:'', room_id:1 }) }
+      else { setMsg('Seat added ✓'); setNewSeat({ seat_number:'', section:'server-room-lane', os_type:'windows', has_machine:true, machine_number:'', is_active:true, notes:'', room_id:1 }) }
     }
     setSaving(false); await fetchAll()
   }
@@ -188,9 +188,8 @@ export default function AdminPage() {
   return (
     <div style={{ background: '#f8fafc', minHeight: '100vh' }}>
       {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '18px 24px 0' }}>
+      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '0' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: '#0f172a', marginBottom: 14 }}>⚙️ Admin Panel</h1>
           <div style={{ display: 'flex', gap: 2, borderBottom: 'none' }}>
             {TABS.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{ padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer', fontSize: 13, fontWeight: tab===t.id?700:400, fontFamily: 'inherit', color: tab===t.id?'#2563eb':'#64748b', borderBottom: `2.5px solid ${tab===t.id?'#2563eb':'transparent'}`, marginBottom: -1, transition: 'all 0.15s' }}>
@@ -251,7 +250,6 @@ export default function AdminPage() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(180px,1fr))', gap: 10, marginBottom: 12 }}>
                 {[
                   { label: 'Seat Number', field: 'seat_number', type: 'text', placeholder: 'SRL-001' },
-                  { label: 'Floor',       field: 'floor',       type: 'text', placeholder: '3' },
                 ].map(f => (
                   <div key={f.field}>
                     <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 5 }}>{f.label}</label>
@@ -304,8 +302,7 @@ export default function AdminPage() {
                   Active (uncheck to disable booking)
                 </label>
                 <div style={{ flex: 1, minWidth: 200 }}>
-                  <label style={{ fontSize: 11, fontWeight: 700, color: '#64748b', display: 'block', marginBottom: 5 }}>Notes (shown as tooltip when inactive)</label>
-                  <input type="text" placeholder="e.g. Remote seat, Under maintenance"
+                  <input type="text" placeholder="Notes (e.g. Remote seat, Under maintenance shown as tooltip)"
                     value={editSeat ? editSeat.notes ?? '' : newSeat.notes}
                     onChange={e => editSeat ? setEditSeat({...editSeat, notes: e.target.value || null}) : setNewSeat({...newSeat, notes: e.target.value})}
                     style={{ width: '100%', padding: '8px 10px', border: '1px solid #e2e8f0', borderRadius: 7, fontSize: 13, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
@@ -354,7 +351,7 @@ export default function AdminPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead>
                     <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                      {['Seat #','Section','OS','Machine','Floor','Status','Notes','Actions'].map(h => (
+                      {['Seat #','Section','OS','Machine','Status','Notes','Actions'].map(h => (
                         <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -372,7 +369,6 @@ export default function AdminPage() {
                             <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 99, background: OS_META[seat.os_type as OsType].bg, color: OS_META[seat.os_type as OsType].color }}>{OS_META[seat.os_type as OsType].label}</span>
                           </td>
                           <td style={{ padding: '9px 13px', color: '#64748b' }}>{seat.machine_number ?? '—'}</td>
-                          <td style={{ padding: '9px 13px', color: '#64748b' }}>{seat.floor ?? '—'}</td>
                           <td style={{ padding: '9px 13px' }}>
                             <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, background: seat.is_active?'#dcfce7':'#f1f5f9', color: seat.is_active?'#15803d':'#64748b', fontWeight: 600 }}>{seat.is_active?'Active':'Inactive'}</span>
                           </td>
