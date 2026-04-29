@@ -267,7 +267,7 @@ export default function SeatLayoutPage() {
                 type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
+                style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', colorScheme: 'light dark' }}
               />
             </div>
             <ShiftPicker

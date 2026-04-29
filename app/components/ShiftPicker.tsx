@@ -5,6 +5,7 @@ import { Clock, Moon, Timer } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { ALL_TIME_SLOTS, NIGHT_SLOTS } from '../types'
 import type { Shift } from '../types'
+import { useTheme } from './ThemeProvider'
 
 interface ShiftPickerProps {
   date: string                   // YYYY-MM-DD — needed to filter past shifts
@@ -97,6 +98,8 @@ export default function ShiftPicker({
   onStartChange, onEndChange, onOvernightChange, onShiftIdChange,
   validStartSlots, disabled = false, restrictPastShifts = true,
 }: ShiftPickerProps) {
+  const { theme } = useTheme()
+  const isDark = theme === 'dark'
   const [shifts, setShifts]               = useState<Shift[]>([])
   const [mode, setMode]                   = useState<'custom' | number>('custom')
   const [loading, setLoading]             = useState(true)
@@ -200,9 +203,10 @@ export default function ShiftPicker({
           disabled={disabled}
           style={{
             fontSize: 12, fontWeight: 600, color: 'var(--ink-700)',
-            background: 'transparent', border: 'none', outline: 'none',
+            background: isDark ? 'var(--surface-2)' : 'transparent', border: 'none', outline: 'none',
             cursor: disabled ? 'not-allowed' : 'pointer',
             minWidth: 180,
+            colorScheme: isDark ? 'dark' : 'light',
           }}
         >
           <option value="custom">Custom Time</option>
@@ -243,7 +247,7 @@ export default function ShiftPicker({
               value={startTime}
               onChange={e => onStartChange(e.target.value)}
               disabled={disabled || effectiveStartSlots.length === 0}
-              style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: isDark ? 'var(--surface-2)' : 'transparent', border: 'none', outline: 'none', cursor: 'pointer', colorScheme: isDark ? 'dark' : 'light' }}
             >
               {effectiveStartSlots.length === 0
                 ? <option>No slots</option>
@@ -256,7 +260,7 @@ export default function ShiftPicker({
               value={endTime}
               onChange={e => onEndChange(e.target.value)}
               disabled={disabled}
-              style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: isDark ? 'var(--surface-2)' : 'transparent', border: 'none', outline: 'none', cursor: 'pointer', colorScheme: isDark ? 'dark' : 'light' }}
             >
               {endSlots.map(t => (
                 <option key={t} value={t}>{t}{isOvernight ? ' (+1 day)' : ''}</option>
