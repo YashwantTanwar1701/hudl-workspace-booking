@@ -121,10 +121,29 @@ export default function AdminPage() {
   }
 
   async function sendInvite() {
-    setInviteSending(true); setInviteMsg('')
-    const { error } = await supabase.auth.admin.inviteUserByEmail(inviteEmail)
-    setInviteMsg(error ? error.message : `Invite sent to ${inviteEmail} ✓`)
-    setInviteSending(false); if (!error) setInviteEmail('')
+    setInviteSending(true)
+    setInviteMsg('')
+
+    try {
+      const res = await fetch('/api/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        setInviteMsg(data.error || 'Failed to send invite')
+      } else {
+        setInviteMsg(`Invite sent to ${inviteEmail} ✓`)
+        setInviteEmail('')
+      }
+    } catch (err) {
+      setInviteMsg('Something went wrong')
+    }
+
+    setInviteSending(false)
   }
 
   const activeSections = FLOOR_SECTIONS.map(sec => {
