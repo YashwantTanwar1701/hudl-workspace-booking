@@ -243,10 +243,10 @@ function SeatCell({
   visualRow: number
 }) {
   const palette: Record<SeatState, { bg: string; border: string; color: string }> = {
-    available: { bg: '#f0fdf4', border: '#86efac', color: '#15803d' },
+    available: { bg: '#16a34a', border: '#15803d', color: '#fff' },
     booked:    { bg: '#fef2f2', border: '#fca5a5', color: '#991b1b' },
     selected:  { bg: '#1e3a5f', border: '#3b82f6', color: '#fff' },
-    mine:      { bg: '#f5f3ff', border: '#a78bfa', color: '#5b21b6' },
+    mine:      { bg: '#7c3aed', border: '#5b21b6', color: '#fff' },
     inactive:  { bg: '#f8fafc', border: '#e2e8f0', color: 'var(--ink-300)' },
     'no-seat': { bg: 'transparent', border: 'transparent', color: 'transparent' },
   }
@@ -697,7 +697,7 @@ function BookInner() {
         <div className="book-main-col" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Legend */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 13px', background: 'var(--card-bg)', borderRadius: 9, border: '1px solid var(--card-border)', flexWrap: 'wrap' }}>
-            {[{c:'#86efac',b:'#86efac',l:'Available'},{c:'#fca5a5',b:'#fca5a5',l:'Booked'},{c:'#1e3a5f',b:'#3b82f6',l:'Selected'},{c:'#a78bfa',b:'#a78bfa',l:'Mine'},{c:'#e2e8f0',b:'#e2e8f0',l:'Locked (Remote)'}].map(lg => (
+            {[{c:'#16a34a',b:'#15803d',l:'Available'},{c:'#fca5a5',b:'#fca5a5',l:'Booked'},{c:'#1e3a5f',b:'#3b82f6',l:'Selected'},{c:'#7c3aed',b:'#5b21b6',l:'Mine'},{c:'#e2e8f0',b:'#e2e8f0',l:'Locked (Remote)'}].map(lg => (
               <div key={lg.l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink-700)' }}>
                 <div style={{ width: 12, height: 12, borderRadius: 3, background: lg.c, border: `2px solid ${lg.b}` }} />{lg.l}
               </div>

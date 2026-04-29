@@ -140,7 +140,9 @@ export default function ShiftPicker({
         const current = sorted.find(s => isShiftCurrentTime(s))
         if (current) {
           setMode(current.id)
-          onOvernightChange(false)
+          const [sh, sm] = current.start_time.split(':').map(Number)
+          const [eh, em] = current.end_time.split(':').map(Number)
+          onOvernightChange((eh * 60 + em) <= (sh * 60 + sm))
           onStartChange(fmt(current.start_time))
           onEndChange(fmt(current.end_time))
           onShiftIdChange?.(current.id)
@@ -160,7 +162,11 @@ export default function ShiftPicker({
     const shift = shifts.find(s => s.id === shiftId)
     if (!shift) return
     setMode(shiftId)
-    onOvernightChange(false)
+    // Detect overnight: shift crosses midnight when end_time <= start_time
+    const [sh, sm] = shift.start_time.split(':').map(Number)
+    const [eh, em] = shift.end_time.split(':').map(Number)
+    const isNightShift = (eh * 60 + em) <= (sh * 60 + sm)
+    onOvernightChange(isNightShift)
     onStartChange(fmt(shift.start_time))
     onEndChange(fmt(shift.end_time))
     onShiftIdChange?.(shiftId)
