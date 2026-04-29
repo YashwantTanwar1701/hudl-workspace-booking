@@ -17,6 +17,11 @@ interface ShiftPickerProps {
   onShiftIdChange?: (id: number | null) => void
   validStartSlots?: string[]
   disabled?: boolean
+  /** When true (default), shifts whose start time is < 30 min from now are
+   *  hidden from the dropdown (booking-style restriction). When false, ALL
+   *  shifts are shown regardless — used for view-only pages like the floor
+   *  map / seat layout where the user just wants to see who's where. */
+  restrictPastShifts?: boolean
 }
 
 function fmt(t: string) { return t.slice(0, 5) }
@@ -72,10 +77,25 @@ function isShiftAvailable(shift: Shift, date: string): boolean {
   return shiftMins - nowMins >= 30
 }
 
+/** Returns true if "now" falls within this shift's time window (handles overnight shifts) */
+function isShiftCurrentTime(shift: Shift): boolean {
+  const now = new Date()
+  const nowMins = now.getHours() * 60 + now.getMinutes()
+  const [sh, sm] = shift.start_time.split(':').map(Number)
+  const [eh, em] = shift.end_time.split(':').map(Number)
+  const startMins = sh * 60 + sm
+  const endMins = eh * 60 + em
+  if (endMins > startMins) {
+    return nowMins >= startMins && nowMins < endMins
+  }
+  // overnight (e.g., 23:00 → 07:00): now is in the shift if past start OR before end
+  return nowMins >= startMins || nowMins < endMins
+}
+
 export default function ShiftPicker({
   date, startTime, endTime, isOvernight,
   onStartChange, onEndChange, onOvernightChange, onShiftIdChange,
-  validStartSlots, disabled = false,
+  validStartSlots, disabled = false, restrictPastShifts = true,
 }: ShiftPickerProps) {
   const [shifts, setShifts]               = useState<Shift[]>([])
   const [mode, setMode]                   = useState<'custom' | number>('custom')
@@ -85,7 +105,7 @@ export default function ShiftPicker({
 
   // When date changes, check if current shift is still available
   useEffect(() => {
-    if (typeof mode === 'number') {
+    if (typeof mode === 'number' && restrictPastShifts) {
       const shift = shifts.find(s => s.id === mode)
       if (shift && !isShiftAvailable(shift, date)) {
         setMode('custom')
@@ -97,13 +117,31 @@ export default function ShiftPicker({
   async function fetchShifts() {
     const { data } = await supabase.from('shift').select('*').order('start_time')
     if (data && data.length > 0) {
-      setShifts(sortShifts(data as Shift[]))
-      // Try to match current time to a predefined shift
-      const match = (data as Shift[]).find(
+      const sorted = sortShifts(data as Shift[])
+      setShifts(sorted)
+
+      // 1. If the current startTime/endTime exactly match a shift, lock to it
+      const match = sorted.find(
         s => fmt(s.start_time) === startTime && fmt(s.end_time) === endTime
       )
       if (match) {
         setMode(match.id)
+        setLoading(false)
+        return
+      }
+
+      // 2. Otherwise, auto-select the shift whose time window contains "now"
+      //    (only on initial load, only when looking at today's date)
+      const today = new Date().toISOString().split('T')[0]
+      if (date === today) {
+        const current = sorted.find(s => isShiftCurrentTime(s))
+        if (current) {
+          setMode(current.id)
+          onOvernightChange(false)
+          onStartChange(fmt(current.start_time))
+          onEndChange(fmt(current.end_time))
+          onShiftIdChange?.(current.id)
+        }
       }
     }
     setLoading(false)
@@ -127,7 +165,12 @@ export default function ShiftPicker({
 
   const isCustom = mode === 'custom'
   const selectedShift = typeof mode === 'number' ? shifts.find(s => s.id === mode) : null
-  const availableShifts = shifts.filter(s => isShiftAvailable(s, date))
+  // When restrictPastShifts is true (booking flow), hide shifts whose start
+  // is < 30 min from now. When false (view-only pages), show every shift so
+  // users can browse Morning/Afternoon/Night even after each has started.
+  const availableShifts = restrictPastShifts
+    ? shifts.filter(s => isShiftAvailable(s, date))
+    : shifts
   const dur = fmtDur(minsBetween(startTime, endTime, isOvernight))
   const effectiveStartSlots = validStartSlots ?? ALL_TIME_SLOTS
   const endSlots = isOvernight ? NIGHT_SLOTS : ALL_TIME_SLOTS.filter(t => t > startTime)

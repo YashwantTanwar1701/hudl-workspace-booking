@@ -1,67 +1,16 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useRouter } from 'next/navigation'
-import { Calendar, Clock, Apple, Monitor, Eye, ChevronRight, RefreshCw } from 'lucide-react'
-import ShiftPicker from '../components/ShiftPicker'
+import { Eye, Calendar, RefreshCw, Apple, Monitor, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
-import { FLOOR_SECTIONS, ALL_TIME_SLOTS, OS_META, getCurrentTimeSlot, getDefaultEndTime, getSectionMeta, buildRoomMap, roomNameFromMap } from '../types'
-import type { Seat, Booking, OsType, Room, RoomMap } from '../types'
+import ShiftPicker from '../components/ShiftPicker'
+import { getCurrentTimeSlot, getDefaultEndTime, OS_META } from '../types'
+import type { Seat, Booking, OsType } from '../types'
+import { LANES, BIG_GROUPS, buildLaneCells, type LaneSpec, type LaneGroup } from '../lib/seat-grid'
 
-/* ─── helpers ─── */
-function OsIcon({ os, size = 12 }: { os: OsType; size?: number }) {
-  if (os === 'mac') return <Apple size={size} />
-  if (os === 'windows') return <Monitor size={size} />
-  return <span style={{ fontSize: size, lineHeight: 1 }}>🪑</span>
-}
-
-function sectionEmoji(id: string): string {
-  if (id.includes('server'))      return '🖥️'
-  if (id.includes('town-hall-lane')) return '🏢'
-  if (id.includes('hr-it-lane'))  return '💼'
-  if (id.includes('hr-ops'))      return '⚙️'
-  if (id.includes('2s-'))         return '📟'
-  if (id.includes('training'))    return '📚'
-  if (id.includes('1s-'))         return '📞'
-  if (id.includes('wellness'))    return '🧘'
-  if (id.includes('conference'))  return '🏛️'
-  if (id.includes('meeting'))     return '🤝'
-  if (id.includes('product'))     return '🚀'
-  if (id.includes('cafeteria'))   return '☕'
-  return '💡'
-}
-
-/* ─── Blueprint grid layout matching actual floor plan ─── */
-const BLUEPRINT = [
-  // Top: large lanes
-  { id: 'town-hall-lane',    col: 9,  row: 1,  cs: 8,  rs: 8,  label: 'Town Hall\nLane' },
-  { id: 'server-room-lane',  col: 1,  row: 1,  cs: 8,  rs: 8,  label: 'Server\nRoom Lane' },
-  { id: 'hr-it-lane',        col: 17, row: 1,  cs: 6,  rs: 8,  label: 'HR/IT\nRoom Lane' },
-  // Right side: HR room + cafeteria
-  { id: 'hr-ops-it',         col: 23, row: 1,  cs: 3,  rs: 4,  label: 'HR/OPS\n/IT' },
-  { id: 'cafeteria-zone',    col: 23, row: 5,  cs: 3,  rs: 7,  label: 'Cafeteria\nZone' },
-  // Middle row: booths + product
-  { id: 'phone-booth-2s-1',  col: 1,  row: 9,  cs: 2,  rs: 2,  label: 'Booth\n2S-1' },
-  { id: 'phone-booth-2s-2',  col: 3,  row: 9,  cs: 2,  rs: 2,  label: 'Booth\n2S-2' },
-  { id: 'phone-booth-2s-3',  col: 5,  row: 9,  cs: 2,  rs: 2,  label: 'Booth\n2S-3' },
-  { id: 'phone-booth-1s-1',  col: 7,  row: 9,  cs: 2,  rs: 2,  label: 'Booth\n1-A' },
-  { id: 'phone-booth-1s-2',  col: 9,  row: 9,  cs: 2,  rs: 2,  label: 'Booth\n1-B' },
-  { id: 'phone-booth-1s-3',  col: 11, row: 9,  cs: 2,  rs: 2,  label: 'Booth\n1-C' },
-  { id: 'wellness-room',     col: 13, row: 9,  cs: 3,  rs: 2,  label: 'Wellness\nRoom' },
-  { id: 'product-team',      col: 16, row: 9,  cs: 4,  rs: 4,  label: 'Product\nTeam' },
-  { id: 'conference-12pax',  col: 20, row: 9,  cs: 3,  rs: 4,  label: '12 PAX\nConf' },
-  // Bottom: training rooms + meeting rooms
-  { id: 'training-room-1',   col: 1,  row: 11, cs: 5,  rs: 5,  label: 'Training\nRoom 1' },
-  { id: 'training-room-2',   col: 6,  row: 11, cs: 5,  rs: 5,  label: 'Training\nRoom 2' },
-  { id: 'training-room-3',   col: 11, row: 11, cs: 5,  rs: 5,  label: 'Training\nRoom 3' },
-  { id: 'meeting-4pax-1',    col: 16, row: 13, cs: 2,  rs: 3,  label: 'Mtg\n4-1' },
-  { id: 'meeting-4pax-2',    col: 18, row: 13, cs: 2,  rs: 3,  label: 'Mtg\n4-2' },
-  { id: 'meeting-4pax-3',    col: 20, row: 13, cs: 2,  rs: 3,  label: 'Mtg\n4-3' },
-] as const
-
-/* ─── Portal Tooltip ─── */
+/* ─── Portal-based tooltip (renders at document.body so it isn't clipped by overflow:hidden cards) ─── */
 function PortalTooltip({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)
   useEffect(() => { setMounted(true) }, [])
@@ -76,11 +25,20 @@ function PortalTooltip({ x, y, children }: { x: number; y: number; children: Rea
   )
 }
 
-/* ─── Seat Tooltip ─── */
-function SeatTip({ seat, windowBooked, isMine, allDayBookings }: {
-  seat: Seat; windowBooked: boolean; isMine: boolean; allDayBookings: Booking[]
+function OsIcon({ os, size = 12 }: { os: OsType; size?: number }) {
+  if (os === 'mac') return <Apple size={size} />
+  if (os === 'windows') return <Monitor size={size} />
+  return <span style={{ fontSize: size, lineHeight: 1 }}>🪑</span>
+}
+
+/* ─── Seat hover details ─── */
+function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
+  seat: Seat
+  lane: LaneSpec | undefined
+  windowBooked: boolean
+  isMine: boolean
+  allDayBookings: Booking[]
 }) {
-  const sec = FLOOR_SECTIONS.find(s => s.id === seat.section)
   const seatBks = allDayBookings
     .filter(b => b.seat_id === seat.id && b.status === 'active')
     .sort((a, b) => a.start_time.localeCompare(b.start_time))
@@ -100,7 +58,17 @@ function SeatTip({ seat, windowBooked, isMine, allDayBookings }: {
   return (
     <div style={{ background: '#0f172a', color: '#fff', borderRadius: 12, padding: '13px 15px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', fontSize: 12, border: '1px solid rgba(255,255,255,0.1)', position: 'relative' }}>
       <div style={{ fontWeight: 800, fontSize: 15, fontFamily: 'monospace', marginBottom: 4 }}>{seat.seat_number}</div>
-      <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 8 }}>{sectionEmoji(seat.section ?? '')} {sec?.label}</div>
+      <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+        {lane?.iconIsSvg ? (
+          <span
+            style={{ display: 'inline-flex', width: 12, height: 12, color: lane.accentColor }}
+            dangerouslySetInnerHTML={{ __html: lane.icon.replace('width="18"', 'width="12"').replace('height="18"', 'height="12"') }}
+          />
+        ) : (
+          <span>{lane?.icon ?? '💡'}</span>
+        )}
+        {lane?.title ?? seat.section}
+      </div>
       <div style={{ fontSize: 12, fontWeight: 700, color: statusColor, marginBottom: freeFrom ? 6 : 8 }}>{statusLabel}</div>
       {isInactive && seat.notes && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>📝 {seat.notes}</div>}
       {freeFrom && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={10} /> {freeFrom}</div>}
@@ -124,180 +92,45 @@ function SeatTip({ seat, windowBooked, isMine, allDayBookings }: {
   )
 }
 
-/* ─── Section Tooltip ─── */
-function SecTip({ sectionId, seats, bookedIds }: { sectionId: string; seats: Seat[]; bookedIds: Set<string> }) {
-  const sec = FLOOR_SECTIONS.find(s => s.id === sectionId)
-  if (!sec) return null
-  const avail = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
-  const pct = seats.length > 0 ? avail / seats.length : 1
-  const osCounts: Record<string, number> = {}
-  seats.forEach(s => { osCounts[s.os_type] = (osCounts[s.os_type] ?? 0) + 1 })
-  return (
-    <div style={{ background: '#0f172a', color: '#fff', borderRadius: 12, padding: '13px 15px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', fontSize: 12, border: '1px solid rgba(255,255,255,0.1)' }}>
-      <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{sectionEmoji(sectionId)} {sec.label}</div>
-      <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 10 }}>{sec.description}</div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
-        <span style={{ color: '#86efac', fontWeight: 600 }}>{avail} available</span>
-        <span style={{ color: '#64748b' }}>{seats.length} total</span>
-      </div>
-      <div style={{ height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 99, overflow: 'hidden', marginBottom: 8 }}>
-        <div style={{ height: '100%', width: `${pct * 100}%`, background: pct === 0 ? '#ef4444' : pct < 0.35 ? '#f59e0b' : '#22c55e', borderRadius: 99 }} />
-      </div>
-      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-        {(Object.entries(osCounts) as [string, number][]).filter(([, n]) => n > 0).map(([os, n]) => (
-          <div key={os} style={{ fontSize: 10, color: '#94a3b8' }}>{OS_META[os as keyof typeof OS_META]?.label} ×{n}</div>
-        ))}
-      </div>
-    </div>
-  )
-}
-
-/* ─── Zone Component ─── */
-function Zone({ zone, seats, bookedIds, myIds, allDayBookedIds, allDayBookings, onSeatHover, onSeatLeave, onSecHover, onSecLeave, hovSeat }: {
-  zone: typeof BLUEPRINT[number]; seats: Seat[]
-  bookedIds: Set<string>; myIds: Set<string>; allDayBookedIds: Set<string>
-  allDayBookings: Booking[]
-  onSeatHover: (s: Seat, x: number, y: number) => void
-  onSeatLeave: () => void
-  onSecHover: (id: string, x: number, y: number) => void
-  onSecLeave: () => void
-  hovSeat: string | null
-}) {
-  const sec = FLOOR_SECTIONS.find(s => s.id === zone.id)
-  if (!sec) return null
-
-  // Count only active available seats
-  const availInWindow = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
-  const pct = seats.length > 0 ? availInWindow / seats.length : 1
-  const headerDot = seats.length === 0 ? '#94a3b8' : pct === 0 ? '#ef4444' : pct < 0.35 ? '#f59e0b' : '#22c55e'
-
-  return (
-    <div style={{
-      gridColumn: `${zone.col} / span ${zone.cs}`,
-      gridRow: `${zone.row} / span ${zone.rs}`,
-      background: sec.color, border: `1.5px solid ${sec.accent}55`,
-      borderRadius: 8, display: 'flex', flexDirection: 'column', position: 'relative',
-    }}>
-      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 3, background: sec.accent, borderRadius: '6px 6px 0 0', zIndex: 1 }} />
-
-      {/* Header */}
-      <div
-        onMouseEnter={e => onSecHover(zone.id, e.clientX, e.clientY)}
-        onMouseLeave={onSecLeave}
-        onMouseMove={e => onSecHover(zone.id, e.clientX, e.clientY)}
-        style={{ padding: '9px 8px 4px', zIndex: 2, position: 'relative', cursor: 'default' }}
-      >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 2 }}>
-          <div style={{ fontSize: 8.5, fontWeight: 700, color: '#0f172a', lineHeight: 1.3 }}>
-            {zone.label.split('\n').map((l, i) => <span key={i}>{l}{i < zone.label.split('\n').length - 1 && <br />}</span>)}
-          </div>
-          {seats.length > 0 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 2, flexShrink: 0 }}>
-              <div style={{ width: 5, height: 5, borderRadius: '50%', background: headerDot }} />
-              <span style={{ fontSize: 7.5, fontWeight: 700, color: headerDot }}>{availInWindow}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Dots */}
-      {seats.length > 0 && (
-        <div style={{ padding: '2px 6px 6px', display: 'flex', flexWrap: 'wrap', gap: 3, alignContent: 'flex-start', flex: 1, zIndex: 2 }}>
-          {seats.map(seat => {
-            // KEY FIX: dot color is based ONLY on the time-window query (bookedIds)
-            // not allDayBookedIds — so a seat booked at 10:30 won't show red at 18:00
-            const isInactive    = !seat.is_active
-            const windowBooked   = bookedIds.has(seat.id)
-            const mine           = myIds.has(seat.id)
-            const isHov          = hovSeat === seat.id
-
-            const bg = isInactive
-              ? '#94a3b8'   // grey — inactive seat
-              : mine
-              ? '#7c3aed'   // purple — my booking
-              : windowBooked
-              ? '#ef4444'   // red — occupied this window
-              : '#22c55e'   // green — available
-
-            const border = isInactive ? '#64748b' : mine ? '#5b21b6' : windowBooked ? '#b91c1c' : '#15803d'
-
-            return (
-              <div
-                key={seat.id}
-                onMouseEnter={e => onSeatHover(seat, e.clientX, e.clientY)}
-                onMouseLeave={onSeatLeave}
-                onMouseMove={e => onSeatHover(seat, e.clientX, e.clientY)}
-                style={{
-                  width: 13, height: 13, borderRadius: 3,
-                  background: bg, border: `1.5px solid ${border}`,
-                  opacity: isHov ? 1 : 0.85,
-                  transform: isHov ? 'scale(1.5)' : 'scale(1)',
-                  transition: 'all 0.1s', cursor: 'default', flexShrink: 0,
-                  zIndex: isHov ? 10 : 1,
-                  boxShadow: isHov ? `0 2px 10px ${bg}aa` : 'none',
-                }}
-              />
-            )
-          })}
-        </div>
-      )}
-      {seats.length === 0 && (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2 }}>
-          <span style={{ fontSize: 7, color: '#94a3b8', textAlign: 'center' }}>No seats</span>
-        </div>
-      )}
-    </div>
-  )
-}
-
-/* ─── Main ─── */
-function FloorMapInner() {
+/* ───────── Page ───────── */
+export default function SeatLayoutPage() {
   const { user } = useAuth()
-  const router = useRouter()
   const today = new Date().toLocaleDateString('en-CA')
-
-  // Default to CURRENT time on page load — key fix
   const initStart = getCurrentTimeSlot()
-  const initEnd   = getDefaultEndTime(initStart)
+  const initEnd = getDefaultEndTime(initStart)
 
-  const [seats,          setSeats]          = useState<Seat[]>([])
-  const [roomMap,        setRoomMap]        = useState<RoomMap>({})
-  const [bookings,       setBookings]       = useState<Booking[]>([])
+  const [seats, setSeats] = useState<Seat[]>([])
+  const [bookings, setBookings] = useState<Booking[]>([])
   const [allDayBookings, setAllDayBookings] = useState<Booking[]>([])
-  const [loading,        setLoading]        = useState(true)
-  const [refreshing,     setRefreshing]     = useState(false)
-  const [date,           setDate]           = useState(today)
-  const [startTime,      setStartTime]      = useState(initStart)
-  const [endTime,        setEndTime]        = useState(initEnd)
-  const [filterOs,       setFilterOs]       = useState('')
-  const [filterSection,  setFilterSection]  = useState('')
-  const [seatTip,        setSeatTip]        = useState<{ seat: Seat; x: number; y: number } | null>(null)
-  const [secTip,         setSecTip]         = useState<{ id: string; x: number; y: number } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [refreshing, setRefreshing] = useState(false)
+  const [date, setDate] = useState(today)
+  const [startTime, setStartTime] = useState(initStart)
+  const [endTime, setEndTime] = useState(initEnd)
+  const [highlightedLaneId, setHighlightedLaneId] = useState<string | null>(null)
+  const [seatTip, setSeatTip] = useState<{ seat: Seat; x: number; y: number } | null>(null)
   const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const laneRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
-  useEffect(() => { fetchSeats(); fetchRooms() }, [])
-  useEffect(() => { fetchBookings() }, [date, startTime, endTime])
-  useEffect(() => { fetchAllDay() }, [date])
+  useEffect(() => { fetchSeats() }, [])
+  useEffect(() => { fetchBookings(); fetchAllDay() }, [date, startTime, endTime])
 
   async function fetchSeats() {
+    setLoading(true)
     const { data } = await supabase.from('seats').select('*').order('seat_number')
     if (data) setSeats(data as Seat[])
     setLoading(false)
   }
 
-  async function fetchRooms() {
-    const { data } = await supabase.from('room').select('*')
-    if (data) setRoomMap(buildRoomMap(data as Room[]))
-  }
-
   async function fetchBookings() {
     setRefreshing(true)
-    // CORRECT overlap query: strictly between window start and end
-    // A booking 10:30-18:00 will NOT show as occupied when window is 18:00-20:00
-    const { data } = await supabase.from('bookings').select('*')
-      .eq('booking_date', date).eq('status', 'active')
+    const { data } = await supabase
+      .from('bookings')
+      .select('*')
+      .eq('booking_date', date)
+      .eq('status', 'active')
       .lt('start_ts', `${date}T${endTime}:00`)
-      .gt('end_ts',   `${date}T${startTime}:00`)
+      .gt('end_ts', `${date}T${startTime}:00`)
     if (data) setBookings(data as Booking[])
     setRefreshing(false)
   }
@@ -307,168 +140,497 @@ function FloorMapInner() {
     if (data) setAllDayBookings(data as Booking[])
   }
 
-  async function handleRefresh() {
+  const onSeatHover = useCallback((seat: Seat, x: number, y: number) => {
+    if (tipTimer.current) { clearTimeout(tipTimer.current); tipTimer.current = null }
+    setSeatTip({ seat, x, y })
+  }, [])
+  const onSeatLeave = useCallback(() => {
+    tipTimer.current = setTimeout(() => setSeatTip(null), 80)
+  }, [])
+
+  const bookedIds = useMemo(() => new Set(bookings.map(b => b.seat_id)), [bookings])
+  const myIds = useMemo(
+    () => new Set(bookings.filter(b => b.user_id === user?.id).map(b => b.seat_id)),
+    [bookings, user]
+  )
+
+  const seatsByLane: Record<string, Seat[]> = useMemo(() => {
+    const result: Record<string, Seat[]> = {}
+    LANES.forEach(lane => {
+      result[lane.id] = seats.filter(s => s.section === lane.sectionId)
+    })
+    return result
+  }, [seats])
+
+  const handleRefresh = async () => {
     setRefreshing(true)
-    await Promise.all([fetchBookings(), fetchAllDay()])
+    await Promise.all([fetchSeats(), fetchBookings(), fetchAllDay()])
     setRefreshing(false)
   }
 
-  // IMPORTANT: bookedIds comes ONLY from time-window query — not allDay
-  const bookedIds       = new Set(bookings.map(b => b.seat_id))
-  const allDayBookedIds = new Set(allDayBookings.map(b => b.seat_id))
-  const myIds           = new Set(bookings.filter(b => b.user_id === user?.id).map(b => b.seat_id))
-
-  const filteredSeats = (id: string) => seats.filter(s => s.section === id && (!filterOs || s.os_type === filterOs))
-
-  const totalBooked = seats.filter(s => bookedIds.has(s.id)).length
-  const totalAvail  = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
-
-  const onSeatHover = useCallback((seat: Seat, x: number, y: number) => {
-    if (tipTimer.current) clearTimeout(tipTimer.current)
-    setSecTip(null); setSeatTip({ seat, x, y })
+  const lanesByGroup = useMemo(() => {
+    const m: Record<LaneGroup, LaneSpec[]> = {
+      'top-left': [], 'top-hr': [], 'top-th': [], 'cafeteria': [],
+      'training': [], 'rooms': [], 'booth': [],
+    }
+    LANES.forEach(l => m[l.group].push(l))
+    return m
   }, [])
-  const onSeatLeave = useCallback(() => { tipTimer.current = setTimeout(() => setSeatTip(null), 80) }, [])
-  const onSecHover  = useCallback((id: string, x: number, y: number) => {
-    if (tipTimer.current) clearTimeout(tipTimer.current)
-    setSeatTip(null); setSecTip({ id, x, y })
-  }, [])
-  const onSecLeave  = useCallback(() => { tipTimer.current = setTimeout(() => setSecTip(null), 80) }, [])
 
+  const handlePillClick = useCallback((laneId: string) => {
+    setHighlightedLaneId(laneId)
+    const el = laneRefs.current[laneId]
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+    window.setTimeout(() => {
+      setHighlightedLaneId(prev => (prev === laneId ? null : prev))
+    }, 2500)
+  }, [])
+
+  const setLaneRef = useCallback((laneId: string) => (el: HTMLDivElement | null) => {
+    laneRefs.current[laneId] = el
+  }, [])
+
+  const renderLane = (lane: LaneSpec) => (
+    <LaneCard
+      key={lane.id}
+      lane={lane}
+      dbSeatsForLane={seatsByLane[lane.id] || []}
+      bookedIds={bookedIds}
+      myIds={myIds}
+      loading={loading}
+      compact={!BIG_GROUPS.includes(lane.group)}
+      highlighted={highlightedLaneId === lane.id}
+      cardRef={setLaneRef(lane.id)}
+      onSeatHover={onSeatHover}
+      onSeatLeave={onSeatLeave}
+    />
+  )
 
   return (
-    <div style={{ height: 'calc(100vh - 60px)', display: 'flex', flexDirection: 'column', background: '#f1f5f9', overflow: 'hidden' }}>
-
-      {/* ── Row 1: Controls ── */}
-      <div style={{ flexShrink: 0, background: '#fff', borderBottom: '1px solid #e2e8f0' }}>
-        <div style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10, borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Eye size={14} color="#2563eb" />
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>Floor Map</span>
-            <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: '#fef3c7', color: '#92400e', fontWeight: 600, border: '1px solid #fde68a' }}>View Only</span>
-            <span style={{ fontSize: 10, color: '#94a3b8', marginLeft: 2 }}>· Hover seats for details</span>
+    <div style={{ minHeight: 'calc(100vh - 60px)', background: '#f1f5f9' }}>
+      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 60, zIndex: 50 }}>
+        <div
+          style={{
+            maxWidth: 1500,
+            margin: '0 auto',
+            padding: '10px 20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Eye size={16} color="#2563eb" />
+            <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Floor Map</span>
+            <span
+              style={{
+                fontSize: 10,
+                padding: '2px 8px',
+                borderRadius: 99,
+                background: '#fef3c7',
+                color: '#92400e',
+                fontWeight: 700,
+                border: '1px solid #fde68a',
+              }}
+            >
+              View Only
+            </span>
+            <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>
+              · Click a section pill to jump to that area
+            </span>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            {/* Date */}
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 10px' }}>
               <Calendar size={12} color="#3b82f6" />
-              <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }} />
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
+              />
             </div>
-            {/* Shift / Time picker */}
             <ShiftPicker
               date={date}
-              startTime={startTime} endTime={endTime} isOvernight={false}
-              onStartChange={t => { setStartTime(t); setBookings([]) }}
-              onEndChange={t => { setEndTime(t); setBookings([]) }}
+              startTime={startTime}
+              endTime={endTime}
+              isOvernight={false}
+              onStartChange={setStartTime}
+              onEndChange={setEndTime}
               onOvernightChange={() => {}}
+              restrictPastShifts={false}
             />
-            {/* OS filter */}
-            <div style={{ display: 'flex', gap: 2, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 3 }}>
-              {([['', 'All'], ['mac', 'Mac'], ['windows', 'Win'], ['other', 'Seat Only']] as const).map(([val, label]) => (
-                <button key={val} onClick={() => setFilterOs(val)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '4px 8px', borderRadius: 6, border: 'none', fontSize: 11, fontWeight: filterOs === val ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit', background: filterOs === val ? '#fff' : 'transparent', color: filterOs === val ? '#0f172a' : '#64748b', boxShadow: filterOs === val ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}>
-                  {val === 'mac' && <Apple size={10} />}{val === 'windows' && <Monitor size={10} />}{val === 'other' && <span style={{ fontSize: 10 }}>🪑</span>}{label}
-                </button>
-              ))}
-            </div>
-            <button onClick={() => router.push('/book')} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8, border: 'none', background: '#1e3a5f', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-              <ChevronRight size={13} /> Book a Seat
-            </button>
-            <button onClick={handleRefresh} disabled={refreshing} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 14px', borderRadius: 8, border: '1.5px solid #2563eb', background: refreshing ? '#eff6ff' : '#2563eb', color: refreshing ? '#2563eb' : '#fff', fontSize: 12, fontWeight: 700, cursor: refreshing ? 'not-allowed' : 'pointer', fontFamily: 'inherit', transition: 'all 0.2s' }}>
-              <RefreshCw size={13} style={{ animation: refreshing ? 'spin 0.8s linear infinite' : 'none' }} />
-              {refreshing ? 'Refreshing…' : 'Refresh'}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: 12, fontWeight: 600, color: '#475569', cursor: refreshing ? 'wait' : 'pointer' }}
+            >
+              <RefreshCw size={12} className={refreshing ? 'spin' : ''} />
+              Refresh
             </button>
           </div>
         </div>
 
-        {/* ── Row 2: Stats + Legend ── */}
-        <div style={{ padding: '5px 16px', display: 'flex', alignItems: 'center', gap: 12, borderBottom: '1px solid #f1f5f9', flexWrap: 'wrap' }}>
-          {[
-            { label: 'Available', val: loading ? '…' : totalAvail,        dot: '#22c55e', color: '#15803d' },
-            { label: 'Occupied',  val: loading ? '…' : totalBooked,       dot: '#ef4444', color: '#991b1b' },
-            { label: 'Inactive',  val: loading ? '…' : seats.filter(s => !s.is_active).length, dot: '#94a3b8', color: '#475569' },
-            { label: 'Total',     val: loading ? '…' : seats.length,      dot: '#64748b', color: '#374151' },
-          ].map(s => (
-            <div key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 2, background: s.dot }} />
-              <span style={{ fontWeight: 700, color: s.color }}>{s.val}</span>
-              <span style={{ color: '#94a3b8' }}>{s.label}</span>
-            </div>
-          ))}
-          <span style={{ color: '#e2e8f0' }}>·</span>
-          <span style={{ fontSize: 10, color: '#94a3b8' }}>{date} · {startTime}–{endTime}</span>
-          {refreshing && <span style={{ fontSize: 10, color: '#3b82f6' }}>Refreshing…</span>}
-          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10 }}>
-            {[
-              { c: '#22c55e', b: '#15803d', l: 'Available' },
-              { c: '#ef4444', b: '#b91c1c', l: 'Occupied' },
-              { c: '#7c3aed', b: '#5b21b6', l: 'Mine' },
-              { c: '#94a3b8', b: '#64748b', l: 'Inactive' },
-            ].map(lg => (
-              <div key={lg.l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10.5, color: '#475569' }}>
-                <div style={{ width: 10, height: 10, borderRadius: 2, background: lg.c, border: `1.5px solid ${lg.b}` }} />
-                {lg.l}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* ── Row 3: Section pills ── */}
-        <div style={{ padding: '6px 16px', display: 'flex', gap: 5, alignItems: 'center', overflowX: 'auto', background: '#fafafa' }}>
-          <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Sections:</span>
-          <button onClick={() => setFilterSection('')} style={{ padding: '3px 10px', borderRadius: 99, border: `1.5px solid ${filterSection === '' ? '#1e3a5f' : '#e2e8f0'}`, background: filterSection === '' ? '#1e3a5f' : '#fff', color: filterSection === '' ? '#fff' : '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0 }}>All</button>
-          {FLOOR_SECTIONS.map(sec => {
-            const ss = filteredSeats(sec.id)
-            const avail = ss.filter(s => !bookedIds.has(s.id) && s.is_active).length
-            const active = filterSection === sec.id
-            return (
-              <button key={sec.id} onClick={() => setFilterSection(active ? '' : sec.id)} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '3px 10px', borderRadius: 99, border: `1.5px solid ${active ? sec.accent : '#e2e8f0'}`, background: active ? sec.color : '#fff', color: active ? '#0f172a' : '#64748b', fontSize: 11, fontWeight: active ? 700 : 400, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0, transition: 'all 0.15s' }}>
-                {sectionEmoji(sec.id)} {sec.shortLabel}
-                {ss.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, color: avail === 0 ? '#ef4444' : '#15803d' }}>({avail})</span>}
-              </button>
-            )
-          })}
-        </div>
+        <SectionPills lanes={LANES} onClick={handlePillClick} highlightedId={highlightedLaneId} seatsByLane={seatsByLane} bookedIds={bookedIds} />
       </div>
 
-      {/* ── Scrollable map ── */}
-      <div style={{ flex: 1, overflow: 'auto', padding: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(25, 1fr)', gridTemplateRows: 'repeat(15, 66px)', gap: 5, background: '#e9ecf0', border: '2px solid #cbd5e1', borderRadius: 14, padding: 8, minWidth: 900 }}>
-          {BLUEPRINT.map(zone => {
-            if (filterSection && filterSection !== zone.id) {
-              return <div key={zone.id} style={{ gridColumn: `${zone.col} / span ${zone.cs}`, gridRow: `${zone.row} / span ${zone.rs}`, background: '#f1f5f9', border: '1px solid #e2e8f0', borderRadius: 8, opacity: 0.2 }} />
-            }
-            return (
-              <Zone key={zone.id} zone={zone} seats={filteredSeats(zone.id)}
-                bookedIds={bookedIds} myIds={myIds} allDayBookedIds={allDayBookedIds}
-                allDayBookings={allDayBookings}
-                onSeatHover={onSeatHover} onSeatLeave={onSeatLeave}
-                onSecHover={onSecHover} onSecLeave={onSecLeave}
-                hovSeat={seatTip?.seat.id ?? null}
-              />
-            )
-          })}
+      {/* Body */}
+      <div style={{ maxWidth: 1500, margin: '0 auto', padding: 20 }}>
+        <Legend />
+
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'minmax(220px, 280px) 1fr',
+            gap: 16,
+            marginBottom: 18,
+          }}
+        >
+          <div className="seatlayout-top-left">
+            {lanesByGroup['top-left'].map(renderLane)}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {lanesByGroup['top-hr'].map(renderLane)}
+            {lanesByGroup['top-th'].map(renderLane)}
+          </div>
         </div>
-        <p style={{ textAlign: 'center', fontSize: 11, color: '#94a3b8', marginTop: 10 }}>
-          View only — use <button onClick={() => router.push('/book')} style={{ color: '#2563eb', background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 700, fontFamily: 'inherit', padding: '0 3px' }}>Book Seat</button> to reserve
-        </p>
+
+        <div>{lanesByGroup['cafeteria'].map(renderLane)}</div>
+
+        <SectionHeader title="Training Rooms" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 18 }}>
+          {lanesByGroup['training'].map(renderLane)}
+        </div>
+
+        <SectionHeader title="Other Rooms" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: 16, marginBottom: 18 }}>
+          {lanesByGroup['rooms'].map(renderLane)}
+        </div>
+
+        <SectionHeader title="Meeting Rooms & Phone Booths" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
+          {lanesByGroup['booth'].map(renderLane)}
+        </div>
       </div>
 
       {seatTip && (
         <PortalTooltip x={seatTip.x} y={seatTip.y}>
-          <SeatTip seat={seatTip.seat} windowBooked={bookedIds.has(seatTip.seat.id)} isMine={myIds.has(seatTip.seat.id)} allDayBookings={allDayBookings} />
+          <SeatTip
+            seat={seatTip.seat}
+            lane={LANES.find(l => l.sectionId === seatTip.seat.section)}
+            windowBooked={bookedIds.has(seatTip.seat.id)}
+            isMine={myIds.has(seatTip.seat.id)}
+            allDayBookings={allDayBookings}
+          />
         </PortalTooltip>
       )}
-      {secTip && (
-        <PortalTooltip x={secTip.x} y={secTip.y}>
-          <SecTip sectionId={secTip.id} seats={filteredSeats(secTip.id)} bookedIds={bookedIds} />
-        </PortalTooltip>
-      )}
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+
+      <style dangerouslySetInnerHTML={{ __html: `
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to   { transform: rotate(360deg); }
+        }
+        .spin { animation: spin 0.8s linear infinite; }
+        .seatlayout-top-left > div {
+          margin-bottom: 0;
+          height: 100%;
+          display: flex;
+          flex-direction: column;
+        }
+        @keyframes seat-card-pulse {
+          0%   { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+          70%  { box-shadow: 0 0 0 12px rgba(59, 130, 246, 0); }
+          100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+        .seat-card-highlighted {
+          animation: seat-card-pulse 1.2s ease-out 2;
+          border-color: #2563eb !important;
+          box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+        }
+      ` }} />
     </div>
   )
 }
 
-export default function FloorMapPage() {
-  return <Suspense><FloorMapInner /></Suspense>
+/* ───────── Section Pills ───────── */
+function SectionPills({
+  lanes, onClick, highlightedId, seatsByLane, bookedIds,
+}: {
+  lanes: LaneSpec[]
+  onClick: (laneId: string) => void
+  highlightedId: string | null
+  seatsByLane: Record<string, Seat[]>
+  bookedIds: Set<string>
+}) {
+  return (
+    <div style={{
+      padding: '6px 16px',
+      display: 'flex',
+      gap: 5,
+      alignItems: 'center',
+      overflowX: 'auto',
+      background: '#fafafa',
+      borderTop: '1px solid #f1f5f9',
+    }}>
+      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Sections:</span>
+      {lanes.map(lane => {
+        const ss = seatsByLane[lane.id] || []
+        const avail = ss.filter(s => !bookedIds.has(s.id) && s.is_active).length
+        const active = highlightedId === lane.id
+        return (
+          <button
+            key={lane.id}
+            onClick={() => onClick(lane.id)}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 4,
+              padding: '3px 10px',
+              borderRadius: 99,
+              border: `1.5px solid ${active ? lane.accentColor : '#e2e8f0'}`,
+              background: active ? lane.bgColor : '#fff',
+              color: active ? '#0f172a' : '#64748b',
+              fontSize: 11,
+              fontWeight: active ? 700 : 500,
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+              whiteSpace: 'nowrap',
+              flexShrink: 0,
+              transition: 'all 0.15s',
+            }}
+          >
+            {lane.iconIsSvg ? (
+              <span
+                style={{ display: 'inline-flex', width: 12, height: 12, alignItems: 'center', justifyContent: 'center', color: lane.accentColor }}
+                dangerouslySetInnerHTML={{ __html: lane.icon.replace('width="18"', 'width="12"').replace('height="18"', 'height="12"') }}
+              />
+            ) : (
+              <span>{lane.icon}</span>
+            )}
+            <span>{lane.title}</span>
+            {ss.length > 0 && (
+              <span style={{ fontSize: 10, fontWeight: 700, color: avail === 0 ? '#ef4444' : '#15803d' }}>
+                ({avail})
+              </span>
+            )}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function Legend() {
+  const items = [
+    { label: 'Available', bg: '#22c55e', border: '#15803d' },
+    { label: 'Occupied', bg: '#ef4444', border: '#b91c1c' },
+    { label: 'Mine', bg: '#7c3aed', border: '#5b21b6' },
+    { label: 'Inactive', bg: '#cbd5e1', border: '#94a3b8' },
+  ]
+  return (
+    <div style={{ background: 'white', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '12px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>Legend</span>
+      {items.map(it => (
+        <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+          <div style={{ width: 14, height: 14, borderRadius: 3, background: it.bg, border: `1.5px solid ${it.border}` }} />
+          {it.label}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function SectionHeader({ title }: { title: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 12px' }}>
+      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{title}</div>
+      <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+    </div>
+  )
+}
+
+/* ───────── Lane card ───────── */
+function LaneCard({
+  lane, dbSeatsForLane, bookedIds, myIds, loading, compact = false, highlighted = false, cardRef,
+  onSeatHover, onSeatLeave,
+}: {
+  lane: LaneSpec
+  dbSeatsForLane: Seat[]
+  bookedIds: Set<string>
+  myIds: Set<string>
+  loading: boolean
+  compact?: boolean
+  highlighted?: boolean
+  cardRef?: (el: HTMLDivElement | null) => void
+  onSeatHover: (seat: Seat, x: number, y: number) => void
+  onSeatLeave: () => void
+}) {
+  const CELL = compact ? 18 : 22
+  const HEADER_H = compact ? 14 : 18
+
+  const { cells, maxRows, seatCount } = useMemo(() => buildLaneCells(lane), [lane])
+  const dbSeats = dbSeatsForLane  // may have fewer than seatCount; rest render as inactive placeholders
+  const dbSeatCount = dbSeats.length
+  const isShortByDb = dbSeatCount > 0 && dbSeatCount < seatCount
+
+  let av = 0, oc = 0, mn = 0, ia = 0
+  for (const cell of cells) {
+    if (cell.kind !== 'seat') continue
+    const seat = dbSeats[cell.dbSeatIndex] ?? null
+    if (!seat) continue  // skip missing DB cells from stats
+    if (!seat.is_active) ia++
+    else if (myIds.has(seat.id)) mn++
+    else if (bookedIds.has(seat.id)) oc++
+    else av++
+  }
+
+  return (
+    <div
+      ref={cardRef}
+      className={highlighted ? 'seat-card-highlighted' : ''}
+      style={{
+        background: 'white',
+        border: '1.5px solid #e2e8f0',
+        borderRadius: 12,
+        marginBottom: 18,
+        overflow: 'hidden',
+        position: 'relative',
+        boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
+        scrollMarginTop: 130,
+      }}
+    >
+      <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: lane.accentColor }} />
+
+      <div style={{ padding: compact ? '14px 18px 10px' : '16px 20px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid #e2e8f0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div
+            style={{ width: compact ? 30 : 32, height: compact ? 30 : 32, borderRadius: 8, background: lane.bgColor, color: lane.accentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 15 : 16 }}
+            {...(lane.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon } } : {})}
+          >
+            {lane.iconIsSvg ? null : lane.icon}
+          </div>
+          <div>
+            <div style={{ fontSize: compact ? 14 : 15, fontWeight: 800, color: '#0f172a', lineHeight: 1.1 }}>{lane.title}</div>
+            <div style={{ fontSize: compact ? 10.5 : 11, color: '#64748b', marginTop: 2 }}>{lane.subtitle}</div>
+          </div>
+        </div>
+
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+          <StatChip dot="#22c55e" label={`${av} avail`} />
+          <StatChip dot="#ef4444" label={`${oc} occupied`} />
+          <StatChip dot="#7c3aed" label={`${mn} mine`} />
+          <StatChip dot="#cbd5e1" label={`${ia} inactive`} />
+          <StatChip dot="#64748b" label={`${seatCount} total`} />
+        </div>
+      </div>
+
+      <div style={{ padding: compact ? '14px 18px 16px' : '16px 20px 18px', overflowX: 'auto', overflowY: 'hidden', flex: 1 }}>
+        {loading ? (
+          <div style={{ fontSize: 12, color: '#94a3b8', padding: 20 }}>Loading…</div>
+        ) : (
+          (() => {
+            const AISLE = compact ? 8 : 12
+            const colGapsSet = new Set(lane.colGaps || [])
+            const rowGapsSet = new Set(lane.rowGaps || [])
+
+            const colTracks: string[] = [`${CELL}px`]
+            for (let c = 1; c <= lane.cols; c++) {
+              const w = colGapsSet.has(c) ? CELL + AISLE : CELL
+              colTracks.push(`${w}px`)
+            }
+
+            const rowTracks: string[] = [`${HEADER_H}px`]
+            for (let visualRow = 1; visualRow <= maxRows; visualRow++) {
+              const logicalRow = lane.readFromBottom ? maxRows - visualRow + 1 : visualRow
+              const hasGap = rowGapsSet.has(logicalRow)
+              const h = hasGap ? CELL + AISLE : CELL
+              rowTracks.push(`${h}px`)
+            }
+
+            return (
+              <div
+                style={{
+                  display: 'grid',
+                  gap: 4,
+                  width: 'max-content',
+                  margin: '0 auto',
+                  gridTemplateColumns: colTracks.join(' '),
+                  gridTemplateRows: rowTracks.join(' '),
+                }}
+              >
+                {cells.map((cell, idx) => {
+                  if (cell.kind === 'corner') return <div key={idx} />
+                  if (cell.kind === 'col-header') return <div key={idx} />
+                  if (cell.kind === 'row-header') return <div key={idx} />
+                  if (cell.kind === 'empty') {
+                    return <div key={idx} style={{ gridColumn: cell.col + 1, gridRow: cell.visualRow + 1 }} />
+                  }
+                  const seat = dbSeats[cell.dbSeatIndex] ?? null
+                  if (!seat) {
+                    // Spec cell with no DB seat behind it — dashed placeholder
+                    return (
+                      <div
+                        key={idx}
+                        title={`${cell.cellId} — not configured in DB`}
+                        style={{
+                          gridColumn: cell.col + 1,
+                          gridRow: cell.visualRow + 1,
+                          justifySelf: 'start',
+                          alignSelf: 'start',
+                          width: CELL,
+                          height: CELL,
+                          borderRadius: 4,
+                          background: 'transparent',
+                          border: '1.5px dashed #e2e8f0',
+                          opacity: 0.5,
+                        }}
+                      />
+                    )
+                  }
+                  let bg = '#22c55e', bd = '#15803d'
+                  if (!seat.is_active) { bg = '#cbd5e1'; bd = '#94a3b8' }
+                  else if (myIds.has(seat.id)) { bg = '#7c3aed'; bd = '#5b21b6' }
+                  else if (bookedIds.has(seat.id)) { bg = '#ef4444'; bd = '#b91c1c' }
+                  const labelText = seat.seat_number || cell.cellId
+                  return (
+                    <div
+                      key={idx}
+                      title={labelText}
+                      onMouseEnter={e => onSeatHover(seat, e.clientX, e.clientY)}
+                      onMouseMove={e => onSeatHover(seat, e.clientX, e.clientY)}
+                      onMouseLeave={onSeatLeave}
+                      style={{
+                        gridColumn: cell.col + 1,
+                        gridRow: cell.visualRow + 1,
+                        justifySelf: 'start',
+                        alignSelf: 'start',
+                        width: CELL,
+                        height: CELL,
+                        borderRadius: 4,
+                        background: bg,
+                        border: `1.5px solid ${bd}`,
+                        transition: 'transform 0.1s ease',
+                        cursor: 'pointer',
+                      }}
+                    />
+                  )
+                })}
+              </div>
+            )
+          })()
+        )}
+      </div>
+    </div>
+  )
+}
+
+function StatChip({ dot, label }: { dot: string; label: string }) {
+  return (
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 99, fontSize: 10.5, fontWeight: 700, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
+      <span style={{ width: 6.5, height: 6.5, borderRadius: '50%', background: dot }} />
+      {label}
+    </span>
+  )
 }
