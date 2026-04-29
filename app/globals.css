@@ -4,8 +4,8 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Light theme (default) ─── */
 :root {
-  /* White-first palette */
   --white: #ffffff;
   --off-white: #fafaf9;
   --surface-1: #f7f6f4;
@@ -13,21 +13,18 @@
   --border: #e5e2dd;
   --border-strong: #d4d0cb;
 
-  /* Ink */
   --ink-900: #1a1916;
   --ink-700: #3d3a35;
   --ink-500: #6b6660;
   --ink-300: #a8a29c;
   --ink-100: #d6d2cc;
 
-  /* Brand – deep navy */
   --brand: #1e3a5f;
   --brand-mid: #2d5282;
   --brand-light: #4a7fb5;
   --brand-pale: #e8f0f8;
   --brand-ultra-pale: #f4f8fc;
 
-  /* Semantic */
   --success: #166534;
   --success-bg: #f0fdf4;
   --success-border: #bbf7d0;
@@ -38,15 +35,9 @@
   --warning-bg: #fffbeb;
   --warning-border: #fde68a;
 
-  /* Radii */
-  --r-xs: 4px;
-  --r-sm: 8px;
-  --r-md: 12px;
-  --r-lg: 16px;
-  --r-xl: 24px;
-  --r-2xl: 32px;
+  --r-xs: 4px; --r-sm: 8px; --r-md: 12px;
+  --r-lg: 16px; --r-xl: 24px; --r-2xl: 32px;
 
-  /* Shadows */
   --shadow-xs: 0 1px 2px rgba(0,0,0,0.04);
   --shadow-sm: 0 2px 8px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.03);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.08), 0 0 0 1px rgba(0,0,0,0.03);
@@ -56,6 +47,59 @@
   --font-display: 'Playfair Display', Georgia, serif;
   --font-body: 'Outfit', system-ui, sans-serif;
   --font-mono: 'Geist Mono', monospace;
+
+  /* Page backgrounds used by seat grid pages */
+  --page-bg: #f1f5f9;
+  --card-bg: #ffffff;
+  --card-border: #e2e8f0;
+  --header-bg: #ffffff;
+  --muted: #64748b;
+  --muted-bg: #f8fafc;
+}
+
+/* ─── Dark theme ─── */
+[data-theme='dark'] {
+  --white: #1e2530;
+  --off-white: #181e28;
+  --surface-1: #1e2530;
+  --surface-2: #252e3d;
+  --border: #2d3748;
+  --border-strong: #3d4f63;
+
+  --ink-900: #f1f5f9;
+  --ink-700: #cbd5e1;
+  --ink-500: #94a3b8;
+  --ink-300: #64748b;
+  --ink-100: #3d4f63;
+
+  --brand: #60a5fa;
+  --brand-mid: #93c5fd;
+  --brand-light: #bfdbfe;
+  --brand-pale: #1e3a5f;
+  --brand-ultra-pale: #172337;
+
+  --success: #86efac;
+  --success-bg: #052e16;
+  --success-border: #166534;
+  --danger: #fca5a5;
+  --danger-bg: #450a0a;
+  --danger-border: #991b1b;
+  --warning: #fde68a;
+  --warning-bg: #431407;
+  --warning-border: #92400e;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,0.3);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
+  --shadow-xl: 0 24px 64px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.05);
+
+  --page-bg: #0f1623;
+  --card-bg: #1e2530;
+  --card-border: #2d3748;
+  --header-bg: #1a2133;
+  --muted: #94a3b8;
+  --muted-bg: #252e3d;
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -69,6 +113,7 @@ body {
   -webkit-font-smoothing: antialiased;
   line-height: 1.6;
   overflow-x: hidden;
+  transition: background 0.2s, color 0.2s;
 }
 
 h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.02em; line-height: 1.15; }
@@ -80,6 +125,25 @@ button { font-family: var(--font-body); cursor: pointer; }
 input, select, textarea {
   font-family: var(--font-body);
   color: var(--ink-900);
+  background: var(--white);
+}
+
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+
+/* Dark-mode overrides for hardcoded inline styles used by seat grid pages */
+[data-theme='dark'] .seat-card-highlighted {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.2) !important;
+}
+
+/* Mobile viewport helpers */
+@media (max-width: 768px) {
+  html { font-size: 15px; }
+}
+@media (max-width: 480px) {
+  html { font-size: 14px; }
 }
 
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -262,3 +326,81 @@ input, select, textarea {
 .btn-secondary:hover { background: var(--surface-2); }
 .btn-danger { background: var(--danger-bg); color: var(--danger); border: 1px solid var(--danger-border); }
 .btn-danger:hover { background: #fee2e2; }
+
+/* ─── Dark-mode overrides for inline-styled seat grid pages ─── */
+[data-theme='dark'] .seat-card-highlighted {
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 3px rgba(96,165,250,0.2) !important;
+}
+
+/* Override hardcoded whites on page wrappers */
+[data-theme='dark'] {
+  color-scheme: dark;
+}
+[data-theme='dark'] input[type="date"],
+[data-theme='dark'] input[type="time"] {
+  color-scheme: dark;
+  background: var(--surface-1);
+  color: var(--ink-900);
+  border-color: var(--border);
+}
+
+/* Mobile: prevent horizontal overflow in seat grids */
+@media (max-width: 640px) {
+  .lane-body, [style*="overflowX: auto"] {
+    max-width: calc(100vw - 40px);
+  }
+}
+
+/* ─── Dark mode: lane card section-color backgrounds ─── */
+/* These target the bgColor values from seat-grid.ts as rendered inline styles */
+[data-theme='dark'] [style*="EDE7F6"] { background-color: #1a1227 !important; }
+[data-theme='dark'] [style*="E8F5E9"] { background-color: #0f1a11 !important; }
+[data-theme='dark'] [style*="E3F2FD"] { background-color: #0c1929 !important; }
+[data-theme='dark'] [style*="FBE9E7"] { background-color: #1c100e !important; }
+[data-theme='dark'] [style*="FFF8E1"] { background-color: #1a1508 !important; }
+[data-theme='dark'] [style*="FFF3E0"] { background-color: #1a1208 !important; }
+[data-theme='dark'] [style*="E8EAF6"] { background-color: #0f1020 !important; }
+[data-theme='dark'] [style*="F3E5F5"] { background-color: #180f1c !important; }
+[data-theme='dark'] [style*="FCE4EC"] { background-color: #1c0d14 !important; }
+[data-theme='dark'] [style*="F1F8E9"] { background-color: #0f180a !important; }
+
+/* Dark mode: all white/light card backgrounds → dark card */
+[data-theme='dark'] [style*="background: rgb(255, 255, 255)"],
+[data-theme='dark'] [style*="background: white"] {
+  background-color: var(--card-bg) !important;
+}
+
+/* Dark mode: light page backgrounds */
+[data-theme='dark'] [style*="background: rgb(248, 250, 252)"],
+[data-theme='dark'] [style*="background: rgb(241, 245, 249)"],
+[data-theme='dark'] [style*="background: rgb(250, 250, 250)"] {
+  background-color: var(--page-bg) !important;
+}
+
+/* Dark mode: text colors */
+[data-theme='dark'] [style*="color: rgb(15, 23, 42)"]   { color: var(--ink-900) !important; }
+[data-theme='dark'] [style*="color: rgb(71, 85, 105)"]  { color: var(--ink-700) !important; }
+[data-theme='dark'] [style*="color: rgb(100, 116, 139)"]{ color: var(--muted) !important; }
+[data-theme='dark'] [style*="color: rgb(148, 163, 184)"]{ color: var(--ink-300) !important; }
+[data-theme='dark'] [style*="color: rgb(55, 65, 81)"]   { color: var(--ink-700) !important; }
+
+/* Dark mode: borders */
+[data-theme='dark'] [style*="border: 1.5px solid rgb(226, 232, 240)"],
+[data-theme='dark'] [style*="border: 1px solid rgb(226, 232, 240)"],
+[data-theme='dark'] [style*="border-bottom: 1px solid rgb(226, 232, 240)"],
+[data-theme='dark'] [style*="border-top: 1px solid rgb(226, 232, 240)"] {
+  border-color: var(--card-border) !important;
+}
+[data-theme='dark'] [style*="border: 1px solid rgb(241, 245, 249)"],
+[data-theme='dark'] [style*="border-bottom: 1px solid rgb(241, 245, 249)"] {
+  border-color: var(--card-border) !important;
+}
+
+/* Dark mode: stat chips and toolbar backgrounds */
+[data-theme='dark'] [style*="background: rgb(248, 250, 252)"] {
+  background-color: var(--surface-2) !important;
+}
+[data-theme='dark'] [style*="background: rgb(250, 250, 250)"] {
+  background-color: var(--surface-1) !important;
+}

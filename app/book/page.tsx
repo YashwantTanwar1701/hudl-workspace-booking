@@ -16,6 +16,7 @@ import {
 } from '../types'
 import type { Seat, Booking, OsType, Room, RoomMap } from '../types'
 import { LANES, buildLaneCells, isWellnessLane, type LaneSpec } from '../lib/seat-grid'
+import { useTheme } from '../components/ThemeProvider'
 
 /* ─── helpers ─── */
 function OsIconSmall({ os, size = 12 }: { os: OsType; size?: number }) {
@@ -60,6 +61,8 @@ function LaneBookingCard({
   highlighted: boolean
   cardRef: (el: HTMLDivElement | null) => void
 }) {
+  const { theme } = useTheme()
+  const cardBg = theme === 'dark' ? lane.darkBgColor : lane.bgColor
   const { cells, maxRows, seatCount } = useMemo(() => buildLaneCells(lane), [lane])
   // Lenient match: fill what we have from DB into spec cells; cells beyond
   // DB count render as non-interactive ghost placeholders.
@@ -107,7 +110,7 @@ function LaneBookingCard({
       ref={cardRef}
       className={highlighted ? 'seat-card-highlighted' : ''}
       style={{
-        background: '#fff',
+        background: 'var(--card-bg)',
         border: `1.5px solid ${sel > 0 ? lane.accentColor : '#e2e8f0'}`,
         borderRadius: 14,
         overflow: 'hidden',
@@ -120,16 +123,16 @@ function LaneBookingCard({
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: lane.accentColor }} />
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px 10px', background: lane.bgColor, borderBottom: `1px solid ${lane.accentColor}33` }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 16px 10px', background: cardBg, borderBottom: `1px solid ${lane.accentColor}33` }}>
         <div
-          style={{ width: 38, height: 38, borderRadius: 10, background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', color: lane.accentColor }}
+          style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--card-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', color: lane.accentColor }}
           {...(lane.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon } } : {})}
         >
           {lane.iconIsSvg ? null : lane.icon}
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>{lane.title}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)' }}>{lane.title}</span>
             {sel > 0 && (
               <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 99, background: lane.accentColor, color: '#fff' }}>
                 {sel} selected
@@ -142,11 +145,11 @@ function LaneBookingCard({
               </span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{lane.subtitle}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: av === 0 ? '#dc2626' : '#15803d' }}>{av} avail</span>
-          <span style={{ fontSize: 10, color: '#94a3b8' }}>{seatCount} total</span>
+          <span style={{ fontSize: 10, color: 'var(--ink-300)' }}>{seatCount} total</span>
         </div>
       </div>
 
@@ -158,7 +161,7 @@ function LaneBookingCard({
           </div>
         )}
         {seatCount === 0 ? (
-          <div style={{ textAlign: 'center', padding: '14px 0', color: '#94a3b8', fontSize: 12 }}>No seats configured</div>
+          <div style={{ textAlign: 'center', padding: '14px 0', color: 'var(--ink-300)', fontSize: 12 }}>No seats configured</div>
         ) : (
           <div
             style={{
@@ -244,7 +247,7 @@ function SeatCell({
     booked:    { bg: '#fef2f2', border: '#fca5a5', color: '#991b1b' },
     selected:  { bg: '#1e3a5f', border: '#3b82f6', color: '#fff' },
     mine:      { bg: '#f5f3ff', border: '#a78bfa', color: '#5b21b6' },
-    inactive:  { bg: '#f8fafc', border: '#e2e8f0', color: '#94a3b8' },
+    inactive:  { bg: '#f8fafc', border: '#e2e8f0', color: 'var(--ink-300)' },
     'no-seat': { bg: 'transparent', border: 'transparent', color: 'transparent' },
   }
   const p = palette[state]
@@ -302,6 +305,7 @@ function SectionPills({
   seatsByLane: Record<string, Seat[]>
   bookedIds: Set<string>
 }) {
+  const { theme: pillTheme } = useTheme()
   return (
     <div style={{
       padding: '6px 16px',
@@ -309,10 +313,10 @@ function SectionPills({
       gap: 5,
       alignItems: 'center',
       overflowX: 'auto',
-      background: '#fafafa',
-      borderTop: '1px solid #f1f5f9',
+      background: 'var(--surface-1)',
+      borderTop: '1px solid var(--card-border)',
     }}>
-      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Sections:</span>
+      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-300)', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Sections:</span>
       {lanes.map(lane => {
         const ss = seatsByLane[lane.id] || []
         const avail = ss.filter(s => !bookedIds.has(s.id) && s.is_active).length
@@ -325,7 +329,7 @@ function SectionPills({
               display: 'flex', alignItems: 'center', gap: 4,
               padding: '3px 10px', borderRadius: 99,
               border: `1.5px solid ${active ? lane.accentColor : '#e2e8f0'}`,
-              background: active ? lane.bgColor : '#fff',
+              background: active ? (pillTheme === 'dark' ? lane.darkBgColor : lane.bgColor) : 'var(--card-bg)',
               color: active ? '#0f172a' : '#64748b',
               fontSize: 11, fontWeight: active ? 700 : 500,
               cursor: 'pointer', fontFamily: 'inherit',
@@ -360,28 +364,29 @@ function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endT
   date: string; startTime: string; endTime: string; isOvernight: boolean; endDate: string
   onConfirm: () => void; loading: boolean; error: string
 }) {
+  const { theme } = useTheme()
   if (!open) return null
   const sel = seats.filter(s => selectedIds.has(s.id))
   const dur = fmtDur(minutesBetween(startTime, endTime, isOvernight))
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 500, boxShadow: '0 32px 80px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
-        <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card-bg)', borderRadius: 20, width: '100%', maxWidth: 500, boxShadow: '0 32px 80px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+        <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 38, height: 38, borderRadius: 10, background: '#eff6ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><ShoppingCart size={18} color="#2563eb" /></div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Confirm {sel.length} Seat{sel.length !== 1 ? 's' : ''}</div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>Review before confirming</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-900)' }}>Confirm {sel.length} Seat{sel.length !== 1 ? 's' : ''}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Review before confirming</div>
           </div>
-          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}><X size={16} /></button>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-300)', padding: 4 }}><X size={16} /></button>
         </div>
         <div style={{ padding: '14px 22px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-          <div style={{ background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#475569' }}>
+          <div style={{ background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 10, padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--ink-700)' }}>
               <Calendar size={13} color="#3b82f6" />
               {new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: '#475569' }}>
-              <Clock size={13} color="#3b82f6" />{startTime} → {endTime} <span style={{ color: '#94a3b8' }}>({dur})</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, color: 'var(--ink-700)' }}>
+              <Clock size={13} color="#3b82f6" />{startTime} → {endTime} <span style={{ color: 'var(--ink-300)' }}>({dur})</span>
               {isOvernight && <span style={{ fontSize: 11, padding: '1px 8px', borderRadius: 99, background: '#ede9fe', color: '#7c3aed', fontWeight: 600 }}>Overnight → {endDate}</span>}
             </div>
           </div>
@@ -389,18 +394,18 @@ function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endT
             {sel.map(seat => {
               const lane = LANES.find(l => l.sectionId === seat.section)
               return (
-                <div key={seat.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: '#fff', border: '1px solid #e2e8f0', borderRadius: 9 }}>
+                <div key={seat.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 9 }}>
                   <div
-                    style={{ width: 28, height: 28, borderRadius: 7, background: lane?.bgColor ?? '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: lane?.accentColor ?? '#64748b' }}
+                    style={{ width: 28, height: 28, borderRadius: 7, background: lane ? (theme === 'dark' ? lane.darkBgColor : lane.bgColor) : 'var(--muted-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, color: lane?.accentColor ?? '#64748b' }}
                     {...(lane?.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon.replace('width="18"', 'width="14"').replace('height="18"', 'height="14"') } } : {})}
                   >
                     {lane?.iconIsSvg ? null : lane?.icon ?? '💡'}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', fontFamily: 'monospace' }}>{seat.seat_number}</div>
-                    <div style={{ fontSize: 11, color: '#64748b' }}>{lane?.title ?? seat.section}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', fontFamily: 'monospace' }}>{seat.seat_number}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lane?.title ?? seat.section}</div>
                   </div>
-                  <span style={{ fontSize: 11, color: '#64748b' }}>{OS_META[seat.os_type].label}</span>
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{OS_META[seat.os_type].label}</span>
                 </div>
               )
             })}
@@ -411,8 +416,8 @@ function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endT
             </div>
           )}
         </div>
-        <div style={{ padding: '14px 22px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
-          <button onClick={onClose} disabled={loading} style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#475569' }}>Cancel</button>
+        <div style={{ padding: '14px 22px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: 8 }}>
+          <button onClick={onClose} disabled={loading} style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-700)' }}>Cancel</button>
           <button onClick={onConfirm} disabled={loading} style={{ flex: 2, padding: '10px', borderRadius: 9, border: 'none', background: 'linear-gradient(135deg,#059669,#047857)', color: '#fff', cursor: loading ? 'wait' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Zap size={14} /> {loading ? 'Booking…' : `Confirm ${sel.length}`}
           </button>
@@ -432,27 +437,27 @@ function WellnessConfirmModal({ open, onClose, onConfirm, count }: {
   if (!open) return null
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 440, boxShadow: '0 32px 80px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
-        <div style={{ padding: '20px 22px 14px', borderBottom: '1px solid #f1f5f9', display: 'flex', alignItems: 'center', gap: 12 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card-bg)', borderRadius: 20, width: '100%', maxWidth: 440, boxShadow: '0 32px 80px rgba(0,0,0,0.2)', overflow: 'hidden' }}>
+        <div style={{ padding: '20px 22px 14px', borderBottom: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 42, height: 42, borderRadius: 12, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#dc2626' }}>
             <Heart size={20} />
           </div>
           <div>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#0f172a' }}>Wellness Room Booking</div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>Emergency-only access</div>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-900)' }}>Wellness Room Booking</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Emergency-only access</div>
           </div>
-          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', padding: 4 }}><X size={16} /></button>
+          <button onClick={onClose} style={{ marginLeft: 'auto', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-300)', padding: 4 }}><X size={16} /></button>
         </div>
-        <div style={{ padding: '18px 22px', fontSize: 13, color: '#374151', lineHeight: 1.55 }}>
+        <div style={{ padding: '18px 22px', fontSize: 13, color: 'var(--ink-700)', lineHeight: 1.55 }}>
           <p style={{ margin: '0 0 10px' }}>
             The <strong>Wellness Room</strong> is reserved for emergencies — when an employee needs immediate rest, recovery, or quiet space due to illness or distress.
           </p>
-          <p style={{ margin: 0, color: '#64748b' }}>
+          <p style={{ margin: 0, color: 'var(--muted)' }}>
             Please confirm your booking is for an emergency reason. The 30-minute advance window does not apply — book whenever you need it.
           </p>
         </div>
-        <div style={{ padding: '14px 22px 18px', borderTop: '1px solid #f1f5f9', display: 'flex', gap: 8 }}>
-          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: '#475569' }}>Cancel</button>
+        <div style={{ padding: '14px 22px 18px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: 8 }}>
+          <button onClick={onClose} style={{ flex: 1, padding: '10px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-700)' }}>Cancel</button>
           <button onClick={onConfirm} style={{ flex: 2, padding: '10px', borderRadius: 9, border: 'none', background: 'linear-gradient(135deg,#dc2626,#991b1b)', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
             <Heart size={14} /> Confirm Emergency Booking
           </button>
@@ -486,6 +491,7 @@ function BookInner() {
   const [error, setError] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [wellnessConfirmOpen, setWellnessConfirmOpen] = useState(false)
+  const { theme } = useTheme()
   const [filterOs, setFilterOs] = useState('')
   const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -545,6 +551,16 @@ function BookInner() {
     return seats.filter(s => selectedIds.has(s.id)).every(s => s.section === wellness.sectionId)
   }, [selectedIds, seats])
 
+  // When switching to wellness-only, cap end time at startTime + 3hrs
+  const effectiveEndTime = useMemo(() => {
+    if (!allSelectedAreWellness) return endTime
+    const [sh, sm] = effectiveStart.split(':').map(Number)
+    const total = sh * 60 + sm + 180 // 3 hours
+    const eh = Math.floor(total / 60) % 24
+    const em = total % 60 === 0 ? '00' : '30'
+    return `${String(eh).padStart(2, '0')}:${em}`
+  }, [allSelectedAreWellness, effectiveStart, endTime])
+
   async function performBooking() {
     if (!user || selectedIds.size === 0) return
     // 30-min advance check — bypassed entirely for Wellness-only selections
@@ -560,9 +576,9 @@ function BookInner() {
     const sel = seats.filter(s => selectedIds.has(s.id))
     const inserts = sel.flatMap(seat => isOvernight ? [
       { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:59', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:59`, shift_id: selectedShiftId },
-      { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: endTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${endTime}:00`, shift_id: selectedShiftId },
+      { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: effectiveEndTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${effectiveEndTime}:00`, shift_id: selectedShiftId },
     ] : [
-      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: endTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${endTime}:00`, shift_id: selectedShiftId },
+      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: effectiveEndTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${effectiveEndTime}:00`, shift_id: selectedShiftId },
     ])
     const { error: err } = await supabase.from('bookings').insert(inserts)
     if (err) setError(err.message.includes('overlap') ? 'One or more seats conflict with existing bookings.' : err.message)
@@ -599,7 +615,7 @@ function BookInner() {
   }, [])
 
   const totalAvail = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
-  const dur = fmtDur(minutesBetween(effectiveStart, endTime, isOvernight))
+  const dur = fmtDur(minutesBetween(effectiveStart, effectiveEndTime, isOvernight))
   const noSlots = date === today && validStarts.length === 0
   // Note: noSlots disables bookings UNLESS the user only has Wellness selected
   const canBook = selectedIds.size > 0 && (!noSlots || allSelectedAreWellness)
@@ -608,10 +624,10 @@ function BookInner() {
     <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
       <div style={{ textAlign: 'center', maxWidth: 380 }}>
         <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#d1fae5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}><CheckCircle2 size={36} color="#059669" /></div>
-        <h2 style={{ fontSize: 24, fontWeight: 700, color: '#0f172a', marginBottom: 8 }}>All Booked!</h2>
-        <p style={{ color: '#64748b', marginBottom: 24 }}>Your reservation is confirmed.</p>
+        <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 8 }}>All Booked!</h2>
+        <p style={{ color: 'var(--muted)', marginBottom: 24 }}>Your reservation is confirmed.</p>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-          <button onClick={() => setSuccess(false)} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>Book More</button>
+          <button onClick={() => setSuccess(false)} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>Book More</button>
           <button onClick={() => router.push('/my-bookings')} style={{ padding: '9px 18px', borderRadius: 9, border: 'none', background: '#1e3a5f', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>My Bookings →</button>
         </div>
       </div>
@@ -619,20 +635,19 @@ function BookInner() {
   )
 
   return (
-    <div style={{ background: '#f8fafc', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--muted-bg)', minHeight: '100vh' }}>
       {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 60, zIndex: 50 }}>
+      <div style={{ background: 'var(--card-bg)', borderBottom: '1px solid var(--card-border)', position: 'sticky', top: 60, zIndex: 50 }}>
         <div style={{ maxWidth: 1300, margin: '0 auto', padding: '20px 24px 0' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, marginBottom: 16 }}>
             <div>
-              <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 9 }}>
+              <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink-900)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 9 }}>
                 <LayoutGrid size={21} color="#2563eb" /> Book a Seat
               </h1>
-              <p style={{ color: '#64748b', fontSize: 13 }}>Multi-seat selection · Same layout as Floor Map · Wellness Room available 24/7</p>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
               <span style={{ fontSize: 12, padding: '5px 10px', borderRadius: 99, background: '#f0fdf4', color: '#15803d', fontWeight: 600, border: '1px solid #bbf7d0' }}>{loadingBks ? '…' : `${totalAvail} available`}</span>
-              <button onClick={fetchBookings} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 11px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 12, color: '#475569', fontFamily: 'inherit' }}><RefreshCw size={11} /> Refresh</button>
+              <button onClick={fetchBookings} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 11px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, color: 'var(--ink-700)', fontFamily: 'inherit' }}><RefreshCw size={11} /> Refresh</button>
             </div>
           </div>
 
@@ -648,9 +663,9 @@ function BookInner() {
 
           {/* Row 1: Date + Shift picker (left) · OS filter (right) */}
           <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', paddingBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '7px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10, padding: '7px 12px' }}>
               <Calendar size={12} color="#3b82f6" />
-              <input type="date" value={date} min={today} onChange={e => { setDate(e.target.value); setSelectedIds(new Set()) }} style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }} />
+              <input type="date" value={date} min={today} onChange={e => { setDate(e.target.value); setSelectedIds(new Set()) }} style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }} />
             </div>
             <ShiftPicker
               date={date}
@@ -663,7 +678,7 @@ function BookInner() {
               disabled={noSlots}
               restrictPastShifts={true}
             />
-            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: 3 }}>
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10, padding: 3 }}>
               {([['', 'All'], ['mac', 'Mac'], ['windows', 'Win'], ['other', 'Seat Only']] as const).map(([val, label]) => (
                 <button key={val} onClick={() => setFilterOs(val)} style={{ display: 'flex', alignItems: 'center', gap: 3, padding: '4px 9px', borderRadius: 7, border: 'none', fontSize: 11, fontWeight: filterOs === val ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit', background: filterOs === val ? '#fff' : 'transparent', color: filterOs === val ? '#0f172a' : '#64748b', boxShadow: filterOs === val ? '0 1px 4px rgba(0,0,0,0.1)' : 'none' }}>
                   {val === 'mac' && <Apple size={10} />}{val === 'windows' && <Monitor size={10} />}{val === 'other' && <span style={{ fontSize: 10 }}>🪑</span>}{val === '' && <Filter size={10} />}{label}
@@ -678,20 +693,20 @@ function BookInner() {
       </div>
 
       {/* Body */}
-      <div style={{ maxWidth: 1300, margin: '0 auto', padding: '18px 24px', display: 'grid', gridTemplateColumns: '1fr 288px', gap: 18, alignItems: 'start' }}>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ maxWidth: 1300, margin: '0 auto', padding: '18px 24px' }} className="book-page-body">
+        <div className="book-main-col" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Legend */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 13px', background: '#fff', borderRadius: 9, border: '1px solid #e2e8f0', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 13px', background: 'var(--card-bg)', borderRadius: 9, border: '1px solid var(--card-border)', flexWrap: 'wrap' }}>
             {[{c:'#86efac',b:'#86efac',l:'Available'},{c:'#fca5a5',b:'#fca5a5',l:'Booked'},{c:'#1e3a5f',b:'#3b82f6',l:'Selected'},{c:'#a78bfa',b:'#a78bfa',l:'Mine'},{c:'#e2e8f0',b:'#e2e8f0',l:'Locked (Remote)'}].map(lg => (
-              <div key={lg.l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: '#475569' }}>
+              <div key={lg.l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink-700)' }}>
                 <div style={{ width: 12, height: 12, borderRadius: 3, background: lg.c, border: `2px solid ${lg.b}` }} />{lg.l}
               </div>
             ))}
-            <div style={{ marginLeft: 'auto', fontSize: 10, color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 3 }}><Info size={10} /> Click to multi-select</div>
+            <div style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-300)', display: 'flex', alignItems: 'center', gap: 3 }}><Info size={10} /> Click to multi-select</div>
           </div>
 
           {loadingSeats ? (
-            [1,2,3].map(i => <div key={i} style={{ height: 100, borderRadius: 14, background: '#f1f5f9' }} />)
+            [1,2,3].map(i => <div key={i} style={{ height: 100, borderRadius: 14, background: 'var(--page-bg)' }} />)
           ) : LANES.map(lane => (
             <LaneBookingCard
               key={lane.id}
@@ -710,19 +725,19 @@ function BookInner() {
         </div>
 
         {/* Cart sidebar */}
-        <div style={{ position: 'sticky', top: 180, display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'start' }}>
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 15, overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
+        <div className="book-sidebar-col" style={{ position: 'sticky', top: 180, display: 'flex', flexDirection: 'column', gap: 12, alignSelf: 'start' }}>
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 15, overflow: 'hidden', boxShadow: '0 2px 10px rgba(0,0,0,0.05)' }}>
             <div style={{ padding: '14px 16px', background: 'linear-gradient(135deg,#1e3a5f,#2d5282)', color: '#fff' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
                 <ShoppingCart size={15} />
                 <span style={{ fontSize: 14, fontWeight: 700 }}>Selection Cart</span>
                 {selectedIds.size > 0 && <span style={{ marginLeft: 'auto', width: 21, height: 21, borderRadius: '50%', background: '#22c55e', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{selectedIds.size}</span>}
               </div>
-              <div style={{ fontSize: 11, opacity: 0.7 }}>{date} · {effectiveStart}–{endTime}{isOvernight ? ' (Night)' : ''}</div>
+              <div style={{ fontSize: 11, opacity: 0.7 }}>{date} · {effectiveStart}–{effectiveEndTime}{isOvernight ? ' (Night)' : ''}</div>
             </div>
             <div style={{ padding: 12 }}>
               {selectedIds.size === 0 ? (
-                <div style={{ textAlign: 'center', padding: '18px 0', color: '#94a3b8' }}>
+                <div style={{ textAlign: 'center', padding: '18px 0', color: 'var(--ink-300)' }}>
                   <Users size={26} style={{ margin: '0 auto 7px', display: 'block', opacity: 0.35 }} />
                   <div style={{ fontSize: 12 }}>{user ? 'Click seats to select' : 'Sign in to book'}</div>
                   {!user && <button onClick={() => router.push('/auth')} style={{ marginTop: 8, padding: '6px 14px', borderRadius: 7, background: '#1e3a5f', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>Sign in</button>}
@@ -734,14 +749,14 @@ function BookInner() {
                     return (
                       <div key={seat.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8 }}>
                         <div
-                          style={{ width: 26, height: 26, borderRadius: 6, background: lane?.bgColor ?? '#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0, color: lane?.accentColor ?? '#64748b' }}
+                          style={{ width: 26, height: 26, borderRadius: 6, background: lane ? (theme === 'dark' ? lane.darkBgColor : lane.bgColor) : 'var(--muted-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0, color: lane?.accentColor ?? '#64748b' }}
                           {...(lane?.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon.replace('width="18"', 'width="13"').replace('height="18"', 'height="13"') } } : {})}
                         >
                           {lane?.iconIsSvg ? null : lane?.icon ?? '💡'}
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: '#0f172a', fontFamily: 'monospace' }}>{seat.seat_number}</div>
-                          <div style={{ fontSize: 10, color: '#64748b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(seat.room_id ? roomMap[seat.room_id]?.name : null) || lane?.title}</div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-900)', fontFamily: 'monospace' }}>{seat.seat_number}</div>
+                          <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(seat.room_id ? roomMap[seat.room_id]?.name : null) || lane?.title}</div>
                         </div>
                         <button onClick={() => toggleSeat(seat)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: 2 }}><Trash2 size={11} /></button>
                       </div>
@@ -752,8 +767,8 @@ function BookInner() {
             </div>
             {selectedIds.size > 0 && user && (
               <div style={{ padding: '0 12px 12px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderTop: '1px solid #f1f5f9', fontSize: 12 }}>
-                  <span style={{ color: '#64748b' }}>Duration</span><span style={{ fontWeight: 600 }}>{dur}</span>
+                <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderTop: '1px solid var(--card-border)', fontSize: 12 }}>
+                  <span style={{ color: 'var(--muted)' }}>Duration</span><span style={{ fontWeight: 600 }}>{dur}</span>
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
                   <span>Seats</span><span>{selectedIds.size}</span>
@@ -788,7 +803,7 @@ function BookInner() {
                     ? `Book Wellness Emergency`
                     : `Book ${selectedIds.size} Seat${selectedIds.size !== 1 ? 's' : ''}`}
                 </button>
-                <button onClick={() => setSelectedIds(new Set())} style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', color: '#64748b', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <button onClick={() => setSelectedIds(new Set())} style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                   <X size={11} /> Clear all
                 </button>
               </div>
@@ -805,19 +820,19 @@ function BookInner() {
           )}
 
           {/* Quick availability */}
-          <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: '12px 14px' }}>
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#94a3b8', marginBottom: 9 }}>Quick Availability</div>
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: '12px 14px' }}>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-300)', marginBottom: 9 }}>Quick Availability</div>
             {LANES.slice(0, 10).map(lane => {
               const ss = seatsByLane[lane.id] || []
               const avail = ss.filter(s => !bookedIds.has(s.id) && s.is_active).length
               const pct = ss.length > 0 ? avail / ss.length : 1
               return (
                 <div key={lane.id} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
-                  <span style={{ fontSize: 10, flex: 1, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lane.title}</span>
-                  <div style={{ width: 50, height: 4, background: '#f1f5f9', borderRadius: 99, overflow: 'hidden' }}>
+                  <span style={{ fontSize: 10, flex: 1, color: 'var(--ink-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lane.title}</span>
+                  <div style={{ width: 50, height: 4, background: 'var(--page-bg)', borderRadius: 99, overflow: 'hidden' }}>
                     <div style={{ width: `${pct * 100}%`, height: '100%', background: pct === 0 ? '#ef4444' : pct < 0.35 ? '#f59e0b' : '#22c55e', borderRadius: 99 }} />
                   </div>
-                  <span style={{ fontSize: 10, color: '#64748b', width: 18, textAlign: 'right' }}>{avail}</span>
+                  <span style={{ fontSize: 10, color: 'var(--muted)', width: 18, textAlign: 'right' }}>{avail}</span>
                 </div>
               )
             })}
@@ -825,7 +840,7 @@ function BookInner() {
         </div>
       </div>
 
-      <ConfirmModal open={confirmOpen} onClose={() => setConfirmOpen(false)} seats={seats} selectedIds={selectedIds} date={date} startTime={effectiveStart} endTime={endTime} isOvernight={isOvernight} endDate={endDate} onConfirm={performBooking} loading={submitting} error={error} />
+      <ConfirmModal open={confirmOpen} onClose={() => setConfirmOpen(false)} seats={seats} selectedIds={selectedIds} date={date} startTime={effectiveStart} endTime={effectiveEndTime} isOvernight={isOvernight} endDate={endDate} onConfirm={performBooking} loading={submitting} error={error} />
       <WellnessConfirmModal open={wellnessConfirmOpen} onClose={() => setWellnessConfirmOpen(false)} onConfirm={handleWellnessConfirm} count={selectedIds.size} />
 
       <style dangerouslySetInnerHTML={{ __html: `
@@ -839,6 +854,25 @@ function BookInner() {
           animation: seat-card-pulse 1.2s ease-out 2;
           border-color: #2563eb !important;
           box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15) !important;
+        }
+        /* Responsive layout */
+        .book-page-body {
+          display: grid;
+          grid-template-columns: 1fr 288px;
+          gap: 18px;
+          align-items: start;
+        }
+        @media (max-width: 900px) {
+          .book-page-body {
+            grid-template-columns: 1fr;
+          }
+          .book-sidebar-col {
+            position: static !important;
+            order: -1; /* sidebar moves to top on mobile */
+          }
+        }
+        @media (max-width: 640px) {
+          .book-page-body { padding: 12px 14px !important; }
         }
       ` }} />
     </div>

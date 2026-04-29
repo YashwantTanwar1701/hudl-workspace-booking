@@ -61,13 +61,13 @@ function KpiCard({ icon: Icon, label, value, sub, color = 'blue' }: { icon: any;
   }
   const c = map[color] ?? map.blue
   return (
-    <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+    <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: 16, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
       <div style={{ width: 36, height: 36, borderRadius: 9, background: c.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10 }}>
         <Icon size={17} color={c.text} />
       </div>
-      <div style={{ fontSize: 26, fontWeight: 800, color: '#0f172a', lineHeight: 1 }}>{value}</div>
-      <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>{label}</div>
-      {sub && <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{sub}</div>}
+      <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--ink-900)', lineHeight: 1 }}>{value}</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>{label}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--ink-300)', marginTop: 2 }}>{sub}</div>}
     </div>
   )
 }
@@ -78,9 +78,9 @@ function SimpleBar({ data, height = 160 }: { data: { label: string; value: numbe
     <div style={{ display: 'flex', alignItems: 'flex-end', gap: 5, height, padding: '0 4px' }}>
       {data.map((d, i) => (
         <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flex: 1 }}>
-          <span style={{ fontSize: 9, color: '#94a3b8' }}>{d.value || ''}</span>
+          <span style={{ fontSize: 9, color: 'var(--ink-300)' }}>{d.value || ''}</span>
           <div style={{ width: '100%', borderRadius: '3px 3px 0 0', background: d.color ?? '#3b82f6', height: `${(d.value / max) * (height - 28)}px`, transition: 'height 0.4s', minHeight: d.value > 0 ? 3 : 0 }} />
-          <span style={{ fontSize: 8, color: '#64748b', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>{d.label}</span>
+          <span style={{ fontSize: 8, color: 'var(--muted)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%' }}>{d.label}</span>
         </div>
       ))}
     </div>
@@ -100,7 +100,7 @@ function SimpleLine({ data, height = 110 }: { data: { label: string; value: numb
         <polyline points={pts} fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" vectorEffect="non-scaling-stroke" />
       </svg>
       <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, display: 'flex', justifyContent: 'space-between' }}>
-        {[data[0], data[Math.floor(data.length/2)], data[data.length-1]].map((d,i) => <span key={i} style={{ fontSize: 9, color: '#94a3b8' }}>{d.label}</span>)}
+        {[data[0], data[Math.floor(data.length/2)], data[data.length-1]].map((d,i) => <span key={i} style={{ fontSize: 9, color: 'var(--ink-300)' }}>{d.label}</span>)}
       </div>
     </div>
   )
@@ -138,7 +138,7 @@ export default function DashboardPage() {
 
   const { from, to } = getRange(preset, customFrom, customTo)
 
-  useEffect(() => { if (!authLoading && !user) router.push('/auth') }, [user, authLoading])
+  useEffect(() => { if (!authLoading && !user) router.replace('/') }, [user, authLoading])
   useEffect(() => { if (user) { fetchData(); fetchRooms() } }, [user, isAdmin, from, to])
 
   async function fetchRooms() {
@@ -211,36 +211,36 @@ export default function DashboardPage() {
   ] as const
 
   return (
-    <div style={{ background: '#f8fafc', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--muted-bg)', minHeight: '100vh' }}>
       {/* Header */}
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', padding: '18px 24px 0' }}>
+      <div style={{ background: 'var(--card-bg)', borderBottom: '1px solid var(--card-border)', padding: '18px 24px 0' }}>
         <div style={{ maxWidth: 1200, margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, marginBottom: 14 }}>
             <div>
-              <h1 style={{ fontSize: 24, fontWeight: 800, color: '#0f172a', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 9 }}><BarChart2 size={21} color="#2563eb" /> Analytics</h1>
-              <p style={{ color: '#64748b', fontSize: 13 }}>{isAdmin ? 'Company-wide & personal insights' : 'Your workspace usage insights'}</p>
+              <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink-900)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 9 }}><BarChart2 size={21} color="#2563eb" /> Analytics</h1>
+              <p style={{ color: 'var(--muted)', fontSize: 13 }}>{isAdmin ? 'Company-wide & personal insights' : 'Your workspace usage insights'}</p>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               {/* Date range presets */}
-              <div style={{ display: 'flex', gap: 2, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 9, padding: 3 }}>
+              <div style={{ display: 'flex', gap: 2, background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 9, padding: 3 }}>
                 {PRESETS.map(p => (
                   <button key={p.id} onClick={() => setPreset(p.id)} style={{ padding: '5px 10px', borderRadius: 7, border: 'none', fontSize: 12, fontWeight: preset===p.id?700:500, cursor: 'pointer', fontFamily: 'inherit', background: preset===p.id?'#fff':'transparent', color: preset===p.id?'#0f172a':'#64748b', boxShadow: preset===p.id?'0 1px 3px rgba(0,0,0,0.1)':'none', transition: 'all 0.12s' }}>{p.label}</button>
                 ))}
               </div>
               {/* Custom range */}
               {preset === 'custom' && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 9, padding: '5px 10px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 9, padding: '5px 10px' }}>
                   <Calendar size={12} color="#3b82f6" />
-                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ fontSize: 12, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', fontWeight: 600, color: '#374151' }} />
+                  <input type="date" value={customFrom} onChange={e => setCustomFrom(e.target.value)} style={{ fontSize: 12, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', fontWeight: 600, color: 'var(--ink-700)' }} />
                   <span style={{ color: '#cbd5e1' }}>→</span>
-                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ fontSize: 12, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', fontWeight: 600, color: '#374151' }} />
+                  <input type="date" value={customTo} onChange={e => setCustomTo(e.target.value)} style={{ fontSize: 12, background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', fontWeight: 600, color: 'var(--ink-700)' }} />
                 </div>
               )}
-              <button onClick={() => exportCSV(bookings, `my-bookings-${from}-${to}.csv`)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: '#475569' }}>
+              <button onClick={() => exportCSV(bookings, `my-bookings-${from}-${to}.csv`)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink-700)' }}>
                 <Download size={12} /> Export CSV
               </button>
               {isAdmin && allBookings.length > 0 && (
-                <button onClick={() => exportCSV(allBookings, `all-bookings-${from}-${to}.csv`)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: '#475569' }}>
+                <button onClick={() => exportCSV(allBookings, `all-bookings-${from}-${to}.csv`)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink-700)' }}>
                   <Download size={12} /> Export All
                 </button>
               )}
@@ -248,7 +248,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Range label */}
-          <div style={{ fontSize: 12, color: '#64748b', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
             Showing: <strong>{from}</strong> to <strong>{to}</strong> · {bookings.length} bookings found
           </div>
 
@@ -265,7 +265,7 @@ export default function DashboardPage() {
 
       <div style={{ maxWidth: 1200, margin: '0 auto', padding: '22px 24px' }}>
         {loading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: '#64748b', gap: 9 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--muted)', gap: 9 }}>
             <Activity size={18} style={{ animation: 'spin 1s linear infinite' }} /> Loading…
           </div>
         ) : (
@@ -281,14 +281,14 @@ export default function DashboardPage() {
                   <KpiCard icon={Flame}       label="Busiest Day"     value={analytics.busyDay}                  color="red"    />
                   <KpiCard icon={MapPin}      label="Top Section"     value={analytics.favSec?.split(' ')[0]||'—'} sub={analytics.favSecCount?`${analytics.favSecCount}×`:''} color="purple" />
                 </div>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: 18 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 5 }}><TrendingUp size={14} color="#3b82f6" /> Booking Trend</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>{from} → {to}</div>
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: 18 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 5 }}><TrendingUp size={14} color="#3b82f6" /> Booking Trend</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-300)', marginBottom: 14 }}>{from} → {to}</div>
                   <SimpleLine data={analytics.trend} height={130} />
                 </div>
                 {/* OS distribution */}
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: 18 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}><Monitor size={14} color="#10b981" /> OS Distribution</div>
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: 18 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}><Monitor size={14} color="#10b981" /> OS Distribution</div>
                   <div style={{ display: 'flex', gap: 12 }}>
                     {(Object.entries(analytics.osCounts) as [string,number][]).map(([os, n]) => {
                       const meta = OS_META[os as OsType]
@@ -297,7 +297,7 @@ export default function DashboardPage() {
                         <div key={os} style={{ flex: 1, padding: '14px 16px', borderRadius: 10, background: meta.bg, border: `1.5px solid ${meta.color}33` }}>
                           <div style={{ fontSize: 22, fontWeight: 800, color: meta.color }}>{n}</div>
                           <div style={{ fontSize: 12, color: meta.color, fontWeight: 600, marginTop: 3 }}>{meta.label}</div>
-                          <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 2 }}>{pct}% of active</div>
+                          <div style={{ fontSize: 11, color: 'var(--ink-300)', marginTop: 2 }}>{pct}% of active</div>
                         </div>
                       )
                     })}
@@ -309,13 +309,13 @@ export default function DashboardPage() {
             {/* PATTERNS */}
             {tab === 'patterns' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: 18 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 3 }}>Busiest Days of Week</div>
-                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 14 }}>Across selected range</div>
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: 18 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 3 }}>Busiest Days of Week</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-300)', marginBottom: 14 }}>Across selected range</div>
                   <SimpleBar data={analytics.byDow} height={170} />
                 </div>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: 18 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 14 }}>Session Stats</div>
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: 18 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 14 }}>Session Stats</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                     {[
                       { label: 'Total Bookings',      value: analytics.total    },
@@ -325,9 +325,9 @@ export default function DashboardPage() {
                       { label: 'Avg Session Length',  value: `${analytics.avgMins}m`   },
                       { label: 'Cancel Rate',         value: `${analytics.cancelRate}%` },
                     ].map(item => (
-                      <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: '#f8fafc', borderRadius: 8 }}>
-                        <span style={{ fontSize: 13, color: '#475569' }}>{item.label}</span>
-                        <span style={{ fontSize: 14, fontWeight: 700, color: '#0f172a' }}>{item.value}</span>
+                      <div key={item.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 12px', background: 'var(--muted-bg)', borderRadius: 8 }}>
+                        <span style={{ fontSize: 13, color: 'var(--ink-700)' }}>{item.label}</span>
+                        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>{item.value}</span>
                       </div>
                     ))}
                   </div>
@@ -338,19 +338,19 @@ export default function DashboardPage() {
             {/* SECTIONS */}
             {tab === 'sections' && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: 18 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 14 }}>Section Usage</div>
-                  {analytics.secBar.length > 0 ? <SimpleBar data={analytics.secBar} height={200} /> : <div style={{ textAlign: 'center', color: '#94a3b8', padding: '40px 0' }}>No data</div>}
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: 18 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 14 }}>Section Usage</div>
+                  {analytics.secBar.length > 0 ? <SimpleBar data={analytics.secBar} height={200} /> : <div style={{ textAlign: 'center', color: 'var(--ink-300)', padding: '40px 0' }}>No data</div>}
                 </div>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, overflow: 'hidden' }}>
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, overflow: 'hidden' }}>
                   <div style={{ padding: '18px 18px 0' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}><Award size={14} color="#f59e0b" /> Top Sections</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 14, display: 'flex', alignItems: 'center', gap: 5 }}><Award size={14} color="#f59e0b" /> Top Sections</div>
                   </div>
                   <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 280, overflowY: 'auto' }}>
                     {analytics.secBar.map((item, i) => (
                       <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '8px 9px', borderRadius: 8, background: i===0?'#fffbeb':'#f8fafc' }}>
                         <div style={{ width: 20, height: 20, borderRadius: '50%', background: i===0?'#fde68a':'#e2e8f0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, fontWeight: 800, color: i===0?'#d97706':'#64748b' }}>{i+1}</div>
-                        <span style={{ fontSize: 12, flex: 1, color: '#475569' }}>{item.label}</span>
+                        <span style={{ fontSize: 12, flex: 1, color: 'var(--ink-700)' }}>{item.label}</span>
                         <span style={{ fontSize: 13, fontWeight: 700 }}>{item.value}</span>
                       </div>
                     ))}
@@ -368,8 +368,8 @@ export default function DashboardPage() {
                   <KpiCard icon={Apple}    label="Mac"     value={allBookings.filter(b=>b.seat?.os_type==='mac').length} color="blue" />
                   <KpiCard icon={Monitor}  label="Windows" value={allBookings.filter(b=>b.seat?.os_type==='windows').length} color="green" />
                 </div>
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, padding: 18 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: '#0f172a', marginBottom: 14 }}>Company Trend</div>
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, padding: 18 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 14 }}>Company Trend</div>
                   {(() => {
                     const days: string[] = []
                     const c = new Date(from+'T00:00:00'), e = new Date(to+'T00:00:00')
@@ -385,33 +385,33 @@ export default function DashboardPage() {
             {tab === 'history' && (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 9, flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', gap: 2, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: 3 }}>
+                  <div style={{ display: 'flex', gap: 2, background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 8, padding: 3 }}>
                     {(['all','active','cancelled'] as const).map(f => (
                       <button key={f} onClick={() => setHistFilter(f)} style={{ padding: '4px 11px', borderRadius: 6, border: 'none', fontSize: 12, fontWeight: histFilter===f?700:500, cursor: 'pointer', fontFamily: 'inherit', background: histFilter===f?'#fff':'transparent', color: histFilter===f?'#0f172a':'#64748b', boxShadow: histFilter===f?'0 1px 3px rgba(0,0,0,0.1)':'none', textTransform: 'capitalize' }}>{f}</button>
                     ))}
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#fff', border: '1px solid #e2e8f0', borderRadius: 8, padding: '6px 11px', flex: 1, maxWidth: 280 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 8, padding: '6px 11px', flex: 1, maxWidth: 280 }}>
                     <Filter size={11} color="#94a3b8" />
-                    <input value={histSearch} onChange={e => setHistSearch(e.target.value)} placeholder="Search seat, date, section…" style={{ border: 'none', outline: 'none', fontSize: 12, width: '100%', color: '#374151', background: 'transparent' }} />
+                    <input value={histSearch} onChange={e => setHistSearch(e.target.value)} placeholder="Search seat, date, section…" style={{ border: 'none', outline: 'none', fontSize: 12, width: '100%', color: 'var(--ink-700)', background: 'transparent' }} />
                   </div>
-                  <button onClick={() => exportCSV(histFiltered, `bookings-${from}-${to}.csv`)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: '#475569' }}>
+                  <button onClick={() => exportCSV(histFiltered, `bookings-${from}-${to}.csv`)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '7px 13px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink-700)' }}>
                     <Download size={12} /> Export ({histFiltered.length})
                   </button>
                 </div>
 
-                <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, overflow: 'hidden' }}>
+                <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, overflow: 'hidden' }}>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                       <thead>
-                        <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
                           {['Seat','Section','OS','Date','Time','Duration','Status'].map(h => (
-                            <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
+                            <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
                           ))}
                         </tr>
                       </thead>
                       <tbody>
                         {histFiltered.length === 0 ? (
-                          <tr><td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>No bookings found</td></tr>
+                          <tr><td colSpan={7} style={{ padding: '36px', textAlign: 'center', color: 'var(--ink-300)', fontSize: 13 }}>No bookings found</td></tr>
                         ) : histFiltered.map((b, i) => {
                           const sec = FLOOR_SECTIONS.find(s => s.id === b.seat?.section)
                           const [sh,sm] = b.start_time.split(':').map(Number)
@@ -419,9 +419,9 @@ export default function DashboardPage() {
                           let mins = (eh*60+em)-(sh*60+sm); if(mins<0) mins+=1440
                           const os = b.seat?.os_type
                           return (
-                            <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9', background: i%2===0?'#fff':'#fafafa', opacity: b.status==='cancelled'?0.6:1 }}>
-                              <td style={{ padding: '9px 13px', fontWeight: 700, fontFamily: 'monospace', color: '#0f172a' }}>{b.seat?.seat_number||'—'}</td>
-                              <td style={{ padding: '9px 13px', color: '#475569' }}>
+                            <tr key={b.id} style={{ borderBottom: '1px solid var(--card-border)', background: i%2===0?'#fff':'#fafafa', opacity: b.status==='cancelled'?0.6:1 }}>
+                              <td style={{ padding: '9px 13px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--ink-900)' }}>{b.seat?.seat_number||'—'}</td>
+                              <td style={{ padding: '9px 13px', color: 'var(--ink-700)' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                   <span style={{ fontSize: 13 }}>{sectionEmoji(b.seat?.section||'')}</span>
                                   {sec?.shortLabel||'—'}
@@ -430,9 +430,9 @@ export default function DashboardPage() {
                               <td style={{ padding: '9px 13px' }}>
                                 {os && <span style={{ fontSize: 11, padding: '2px 7px', borderRadius: 99, background: OS_META[os].bg, color: OS_META[os].color }}>{OS_META[os].label}</span>}
                               </td>
-                              <td style={{ padding: '9px 13px', color: '#475569', whiteSpace: 'nowrap' }}>{new Date(b.booking_date+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</td>
-                              <td style={{ padding: '9px 13px', color: '#475569', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{b.start_time.slice(0,5)}–{b.end_time.slice(0,5)}</td>
-                              <td style={{ padding: '9px 13px', color: '#475569' }}>{mins>=60?`${Math.floor(mins/60)}h${mins%60>0?` ${mins%60}m`:''}`:`${mins}m`}{mins>600&&<Moon size={10} color="#7c3aed" style={{marginLeft:4}}/>}</td>
+                              <td style={{ padding: '9px 13px', color: 'var(--ink-700)', whiteSpace: 'nowrap' }}>{new Date(b.booking_date+'T00:00:00').toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</td>
+                              <td style={{ padding: '9px 13px', color: 'var(--ink-700)', fontFamily: 'monospace', whiteSpace: 'nowrap' }}>{b.start_time.slice(0,5)}–{b.end_time.slice(0,5)}</td>
+                              <td style={{ padding: '9px 13px', color: 'var(--ink-700)' }}>{mins>=60?`${Math.floor(mins/60)}h${mins%60>0?` ${mins%60}m`:''}`:`${mins}m`}{mins>600&&<Moon size={10} color="#7c3aed" style={{marginLeft:4}}/>}</td>
                               <td style={{ padding: '9px 13px' }}>
                                 <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: b.status==='active'?'#dcfce7':'#f1f5f9', color: b.status==='active'?'#15803d':'#64748b' }}>{b.status}</span>
                               </td>

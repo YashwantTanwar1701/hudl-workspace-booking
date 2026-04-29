@@ -177,9 +177,9 @@ export default function ShiftPicker({
 
   if (loading) {
     return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: '#f8fafc', border: '1.5px solid #e2e8f0', borderRadius: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 12px', background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10 }}>
         <Clock size={12} color="#94a3b8" />
-        <span style={{ fontSize: 12, color: '#94a3b8' }}>Loading shifts…</span>
+        <span style={{ fontSize: 12, color: 'var(--ink-300)' }}>Loading shifts…</span>
       </div>
     )
   }
@@ -190,7 +190,7 @@ export default function ShiftPicker({
       {/* ── Shift / Custom dropdown ── */}
       <div style={{
         display: 'flex', alignItems: 'center', gap: 6,
-        background: '#f8fafc', border: '1.5px solid #e2e8f0',
+        background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)',
         borderRadius: 10, padding: '7px 12px',
       }}>
         <Clock size={12} color="#3b82f6" />
@@ -199,7 +199,7 @@ export default function ShiftPicker({
           onChange={e => selectMode(e.target.value)}
           disabled={disabled}
           style={{
-            fontSize: 12, fontWeight: 600, color: '#374151',
+            fontSize: 12, fontWeight: 600, color: 'var(--ink-700)',
             background: 'transparent', border: 'none', outline: 'none',
             cursor: disabled ? 'not-allowed' : 'pointer',
             minWidth: 180,
@@ -224,7 +224,7 @@ export default function ShiftPicker({
         }}>
           <Timer size={12} />
           {fmt(selectedShift.start_time)} → {fmt(selectedShift.end_time)}
-          <span style={{ color: '#64748b', fontWeight: 400 }}>
+          <span style={{ color: 'var(--muted)', fontWeight: 400 }}>
             ({fmtDur(minsBetween(fmt(selectedShift.start_time), fmt(selectedShift.end_time)))})
           </span>
         </div>
@@ -235,15 +235,15 @@ export default function ShiftPicker({
         <>
           <div style={{
             display: 'flex', alignItems: 'center', gap: 5,
-            background: '#f8fafc', border: '1.5px solid #e2e8f0',
+            background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)',
             borderRadius: 10, padding: '7px 12px',
           }}>
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>From</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>From</span>
             <select
               value={startTime}
               onChange={e => onStartChange(e.target.value)}
               disabled={disabled || effectiveStartSlots.length === 0}
-              style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
             >
               {effectiveStartSlots.length === 0
                 ? <option>No slots</option>
@@ -251,12 +251,12 @@ export default function ShiftPicker({
               }
             </select>
             <span style={{ color: '#cbd5e1', fontSize: 11 }}>→</span>
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>To</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>To</span>
             <select
               value={endTime}
               onChange={e => onEndChange(e.target.value)}
               disabled={disabled}
-              style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
+              style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
             >
               {endSlots.map(t => (
                 <option key={t} value={t}>{t}{isOvernight ? ' (+1 day)' : ''}</option>

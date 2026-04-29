@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { createPortal } from 'react-dom'
 import { Eye, Calendar, RefreshCw, Apple, Monitor, Clock } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
+import { useTheme } from '../components/ThemeProvider'
 import ShiftPicker from '../components/ShiftPicker'
 import { getCurrentTimeSlot, getDefaultEndTime, OS_META } from '../types'
 import type { Seat, Booking, OsType } from '../types'
@@ -58,7 +60,7 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
   return (
     <div style={{ background: '#0f172a', color: '#fff', borderRadius: 12, padding: '13px 15px', boxShadow: '0 8px 32px rgba(0,0,0,0.5)', fontSize: 12, border: '1px solid rgba(255,255,255,0.1)', position: 'relative' }}>
       <div style={{ fontWeight: 800, fontSize: 15, fontFamily: 'monospace', marginBottom: 4 }}>{seat.seat_number}</div>
-      <div style={{ color: '#94a3b8', fontSize: 11, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ color: 'var(--ink-300)', fontSize: 11, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
         {lane?.iconIsSvg ? (
           <span
             style={{ display: 'inline-flex', width: 12, height: 12, color: lane.accentColor }}
@@ -74,7 +76,7 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
       {freeFrom && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={10} /> {freeFrom}</div>}
       {seatBks.length > 0 && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8, marginTop: 4 }}>
-          <div style={{ fontSize: 10, color: '#64748b', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Today</div>
+          <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Today</div>
           {seatBks.map((b, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#fca5a5', marginBottom: 3 }}>
               <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
@@ -83,7 +85,7 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
           ))}
         </div>
       )}
-      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8, marginTop: 6, display: 'flex', alignItems: 'center', gap: 5, color: '#64748b', fontSize: 11 }}>
+      <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8, marginTop: 6, display: 'flex', alignItems: 'center', gap: 5, color: 'var(--muted)', fontSize: 11 }}>
         <OsIcon os={seat.os_type} size={11} />
         {OS_META[seat.os_type].label}
         {seat.machine_number != null && <span style={{ marginLeft: 4 }}>· #{seat.machine_number}</span>}
@@ -94,11 +96,13 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
 
 /* ───────── Page ───────── */
 export default function SeatLayoutPage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
+  const router = useRouter()
   const today = new Date().toLocaleDateString('en-CA')
   const initStart = getCurrentTimeSlot()
   const initEnd = getDefaultEndTime(initStart)
 
+  // All hooks declared first — before any conditional returns
   const [seats, setSeats] = useState<Seat[]>([])
   const [bookings, setBookings] = useState<Booking[]>([])
   const [allDayBookings, setAllDayBookings] = useState<Booking[]>([])
@@ -112,8 +116,13 @@ export default function SeatLayoutPage() {
   const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const laneRefs = useRef<Record<string, HTMLDivElement | null>>({})
 
-  useEffect(() => { fetchSeats() }, [])
-  useEffect(() => { fetchBookings(); fetchAllDay() }, [date, startTime, endTime])
+  // Auth guard
+  useEffect(() => {
+    if (!authLoading && !user) router.replace('/')
+  }, [user, authLoading, router])
+
+  useEffect(() => { if (user) fetchSeats() }, [user])
+  useEffect(() => { if (user) { fetchBookings(); fetchAllDay() } }, [date, startTime, endTime, user])
 
   async function fetchSeats() {
     setLoading(true)
@@ -192,6 +201,15 @@ export default function SeatLayoutPage() {
     laneRefs.current[laneId] = el
   }, [])
 
+  // ── Early returns AFTER every hook ──────────────────────────────
+  if (authLoading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--page-bg)' }}>
+      <div style={{ width: 32, height: 32, borderRadius: '50%', border: '3px solid var(--brand)', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    </div>
+  )
+  if (!user) return null
+
   const renderLane = (lane: LaneSpec) => (
     <LaneCard
       key={lane.id}
@@ -209,8 +227,8 @@ export default function SeatLayoutPage() {
   )
 
   return (
-    <div style={{ minHeight: 'calc(100vh - 60px)', background: '#f1f5f9' }}>
-      <div style={{ background: '#fff', borderBottom: '1px solid #e2e8f0', position: 'sticky', top: 60, zIndex: 50 }}>
+    <div style={{ minHeight: 'calc(100vh - 60px)', background: 'var(--page-bg)' }}>
+      <div style={{ background: 'var(--card-bg)', borderBottom: '1px solid var(--card-border)', position: 'sticky', top: 60, zIndex: 50 }}>
         <div
           style={{
             maxWidth: 1500,
@@ -224,7 +242,7 @@ export default function SeatLayoutPage() {
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <Eye size={16} color="#2563eb" />
-            <span style={{ fontSize: 15, fontWeight: 800, color: '#0f172a' }}>Floor Map</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink-900)' }}>Floor Map</span>
             <span
               style={{
                 fontSize: 10,
@@ -238,18 +256,18 @@ export default function SeatLayoutPage() {
             >
               View Only
             </span>
-            <span style={{ fontSize: 11, color: '#94a3b8', marginLeft: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--ink-300)', marginLeft: 4 }}>
               · Click a section pill to jump to that area
             </span>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 8, padding: '5px 10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 8, padding: '5px 10px' }}>
               <Calendar size={12} color="#3b82f6" />
               <input
                 type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
-                style={{ fontSize: 12, fontWeight: 600, color: '#374151', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
+                style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer' }}
               />
             </div>
             <ShiftPicker
@@ -265,7 +283,7 @@ export default function SeatLayoutPage() {
             <button
               onClick={handleRefresh}
               disabled={refreshing}
-              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid #e2e8f0', background: '#fff', fontSize: 12, fontWeight: 600, color: '#475569', cursor: refreshing ? 'wait' : 'pointer' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', cursor: refreshing ? 'wait' : 'pointer' }}
             >
               <RefreshCw size={12} className={refreshing ? 'spin' : ''} />
               Refresh
@@ -364,6 +382,7 @@ function SectionPills({
   seatsByLane: Record<string, Seat[]>
   bookedIds: Set<string>
 }) {
+  const { theme: pillTheme } = useTheme()
   return (
     <div style={{
       padding: '6px 16px',
@@ -371,10 +390,10 @@ function SectionPills({
       gap: 5,
       alignItems: 'center',
       overflowX: 'auto',
-      background: '#fafafa',
-      borderTop: '1px solid #f1f5f9',
+      background: 'var(--surface-1)',
+      borderTop: '1px solid var(--card-border)',
     }}>
-      <span style={{ fontSize: 10, fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Sections:</span>
+      <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-300)', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>Sections:</span>
       {lanes.map(lane => {
         const ss = seatsByLane[lane.id] || []
         const avail = ss.filter(s => !bookedIds.has(s.id) && s.is_active).length
@@ -390,8 +409,8 @@ function SectionPills({
               padding: '3px 10px',
               borderRadius: 99,
               border: `1.5px solid ${active ? lane.accentColor : '#e2e8f0'}`,
-              background: active ? lane.bgColor : '#fff',
-              color: active ? '#0f172a' : '#64748b',
+              background: active ? (pillTheme === 'dark' ? lane.darkBgColor : lane.bgColor) : 'var(--card-bg)',
+              color: active ? 'var(--ink-900)' : 'var(--muted)',
               fontSize: 11,
               fontWeight: active ? 700 : 500,
               cursor: 'pointer',
@@ -430,10 +449,10 @@ function Legend() {
     { label: 'Inactive', bg: '#cbd5e1', border: '#94a3b8' },
   ]
   return (
-    <div style={{ background: 'white', border: '1.5px solid #e2e8f0', borderRadius: 10, padding: '12px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
-      <span style={{ fontSize: 12, fontWeight: 700, color: '#0f172a' }}>Legend</span>
+    <div style={{ background: 'var(--card-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10, padding: '12px 16px', marginBottom: 18, display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap' }}>
+      <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-900)' }}>Legend</span>
       {items.map(it => (
-        <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 600, color: '#64748b' }}>
+        <div key={it.label} style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>
           <div style={{ width: 14, height: 14, borderRadius: 3, background: it.bg, border: `1.5px solid ${it.border}` }} />
           {it.label}
         </div>
@@ -445,8 +464,8 @@ function Legend() {
 function SectionHeader({ title }: { title: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '8px 0 12px' }}>
-      <div style={{ fontSize: 13, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.01em' }}>{title}</div>
-      <div style={{ flex: 1, height: 1, background: '#e2e8f0' }} />
+      <div style={{ fontSize: 13, fontWeight: 800, color: 'var(--ink-900)', letterSpacing: '-0.01em' }}>{title}</div>
+      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
     </div>
   )
 }
@@ -469,6 +488,8 @@ function LaneCard({
 }) {
   const CELL = compact ? 18 : 22
   const HEADER_H = compact ? 14 : 18
+  const { theme } = useTheme()
+  const cardBg = theme === 'dark' ? lane.darkBgColor : lane.bgColor
 
   const { cells, maxRows, seatCount } = useMemo(() => buildLaneCells(lane), [lane])
   const dbSeats = dbSeatsForLane  // may have fewer than seatCount; rest render as inactive placeholders
@@ -491,8 +512,8 @@ function LaneCard({
       ref={cardRef}
       className={highlighted ? 'seat-card-highlighted' : ''}
       style={{
-        background: 'white',
-        border: '1.5px solid #e2e8f0',
+        background: 'var(--card-bg)',
+        border: '1.5px solid var(--card-border)',
         borderRadius: 12,
         marginBottom: 18,
         overflow: 'hidden',
@@ -503,17 +524,17 @@ function LaneCard({
     >
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: lane.accentColor }} />
 
-      <div style={{ padding: compact ? '14px 18px 10px' : '16px 20px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid #e2e8f0' }}>
+      <div style={{ padding: compact ? '14px 18px 10px' : '16px 20px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid var(--card-border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div
-            style={{ width: compact ? 30 : 32, height: compact ? 30 : 32, borderRadius: 8, background: lane.bgColor, color: lane.accentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 15 : 16 }}
+            style={{ width: compact ? 30 : 32, height: compact ? 30 : 32, borderRadius: 8, background: cardBg, color: lane.accentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 15 : 16 }}
             {...(lane.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon } } : {})}
           >
             {lane.iconIsSvg ? null : lane.icon}
           </div>
           <div>
-            <div style={{ fontSize: compact ? 14 : 15, fontWeight: 800, color: '#0f172a', lineHeight: 1.1 }}>{lane.title}</div>
-            <div style={{ fontSize: compact ? 10.5 : 11, color: '#64748b', marginTop: 2 }}>{lane.subtitle}</div>
+            <div style={{ fontSize: compact ? 14 : 15, fontWeight: 800, color: 'var(--ink-900)', lineHeight: 1.1 }}>{lane.title}</div>
+            <div style={{ fontSize: compact ? 10.5 : 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
           </div>
         </div>
 
@@ -528,7 +549,7 @@ function LaneCard({
 
       <div style={{ padding: compact ? '14px 18px 16px' : '16px 20px 18px', overflowX: 'auto', overflowY: 'hidden', flex: 1 }}>
         {loading ? (
-          <div style={{ fontSize: 12, color: '#94a3b8', padding: 20 }}>Loading…</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-300)', padding: 20 }}>Loading…</div>
         ) : (
           (() => {
             const AISLE = compact ? 8 : 12
@@ -628,7 +649,7 @@ function LaneCard({
 
 function StatChip({ dot, label }: { dot: string; label: string }) {
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 99, fontSize: 10.5, fontWeight: 700, background: '#f8fafc', border: '1px solid #e2e8f0', color: '#64748b' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', borderRadius: 99, fontSize: 10.5, fontWeight: 700, background: 'var(--muted-bg)', border: '1px solid var(--card-border)', color: 'var(--muted)' }}>
       <span style={{ width: 6.5, height: 6.5, borderRadius: '50%', background: dot }} />
       {label}
     </span>
