@@ -37,6 +37,7 @@ const TABS: { id: Tab; icon: string; label: string }[] = [
 export default function AdminPage() {
   const { user, profile, loading: authLoading } = useAuth()
   const router = useRouter()
+  const [initialized, setInitialized] = useState(false)
   const [tab, setTab] = useState<Tab>('overview')
   const [seats, setSeats] = useState<Seat[]>([])
   const [roomMap, setRoomMap] = useState<RoomMap>({})
@@ -50,15 +51,29 @@ export default function AdminPage() {
   const [newSeat, setNewSeat] = useState({ seat_number:'', section:'server-room-lane', os_type:'windows' as OsType, has_machine:true, machine_number:'', floor:'3', is_active:true, notes:'', room_id:1 })
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'cancelled'>('all')
+  const [dateFilter, setDateFilter] = useState('')
+  const [selectedBookings, setSelectedBookings] = useState<string[]>([])
+  const [userSearch, setUserSearch] = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'user'>('all')
+  const [seatSearch, setSeatSearch] = useState('')
+  const [seatStatusFilter, setSeatStatusFilter] = useState<'all' | 'active' | 'inactive'>('all')
+  const [sectionFilter, setSectionFilter] = useState('all')
 
   useEffect(() => { if (!authLoading && (!user || profile?.role !== 'admin')) router.push('/floor-map') }, [user, profile, authLoading])
-  useEffect(() => { if (profile?.role === 'admin') fetchAll() }, [profile])
+  useEffect(() => {
+    if (profile?.role === 'admin' && !initialized) {
+      fetchAll()
+      setInitialized(true)
+    }
+  }, [profile, initialized])
 
   async function fetchAll() {
     setLoading(true)
     const [s, b, u, r] = await Promise.all([
       supabase.from('seats').select('*').order('seat_number'),
-      supabase.from('bookings').select('*, seat:seats(*), user:users(*)').order('created_at', { ascending: false }).limit(500),
+      supabase.from('bookings').select('*, seat:seats(*), user:users(*)').order('created_at', { ascending: false }).range(0, 2000),
       supabase.from('users').select('*').order('created_at', { ascending: false }),
       supabase.from('room').select('*'),
     ])
@@ -93,6 +108,18 @@ export default function AdminPage() {
     await fetchAll()
   }
 
+  async function cancelMultipleBookings() {
+    if (selectedBookings.length === 0) return
+
+    await supabase
+      .from('bookings')
+      .update({ status: 'cancelled' })
+      .in('id', selectedBookings)
+
+    setSelectedBookings([])
+    await fetchAll()
+  }
+
   async function sendInvite() {
     setInviteSending(true); setInviteMsg('')
     const { error } = await supabase.auth.admin.inviteUserByEmail(inviteEmail)
@@ -100,11 +127,58 @@ export default function AdminPage() {
     setInviteSending(false); if (!error) setInviteEmail('')
   }
 
-  // Overview stats
   const activeSections = FLOOR_SECTIONS.map(sec => {
     const ss = seats.filter(s => s.section === sec.id)
     const active = bookings.filter(b => b.status === 'active' && ss.some(s => s.id === b.seat_id))
     return { sec, seats: ss, active: active.length, avail: ss.filter(s => s.is_active).length }
+  })
+
+  const filteredBookings = bookings.filter(b => {
+    if (statusFilter !== 'all' && b.status !== statusFilter) return false
+    if (dateFilter && b.booking_date !== dateFilter) return false
+
+    if (search) {
+      const s = search.toLowerCase()
+      return (
+        b.user?.name?.toLowerCase().includes(s) ||
+        b.user?.email?.toLowerCase().includes(s) ||
+        b.seat?.seat_number?.toLowerCase().includes(s)
+      )
+    }
+
+    return true
+  })
+
+  const filteredUsers = users.filter(u => {
+    if (roleFilter !== 'all' && u.role !== roleFilter) return false
+
+    if (userSearch) {
+      const s = userSearch.toLowerCase()
+      return (
+        u.name?.toLowerCase().includes(s) ||
+        u.email?.toLowerCase().includes(s)
+      )
+    }
+
+    return true
+  })
+
+  const filteredSeats = seats.filter(seat => {
+    if (seatStatusFilter !== 'all') {
+      if (seatStatusFilter === 'active' && !seat.is_active) return false
+      if (seatStatusFilter === 'inactive' && seat.is_active) return false
+    }
+
+    if (sectionFilter !== 'all' && seat.section !== sectionFilter) return false
+
+    if (seatSearch) {
+      const s = seatSearch.toLowerCase()
+      return (
+        seat.seat_number?.toLowerCase().includes(s)
+      )
+    }
+
+    return true
   })
 
   if (authLoading || loading) return (
@@ -244,6 +318,35 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+
+              <input
+                placeholder="Search seat number..."
+                value={seatSearch}
+                onChange={e => setSeatSearch(e.target.value)}
+                style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0' }}
+              />
+
+              <select
+                value={seatStatusFilter}
+                onChange={e => setSeatStatusFilter(e.target.value as any)}
+              >
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="inactive">Inactive</option>
+              </select>
+
+              <select
+                value={sectionFilter}
+                onChange={e => setSectionFilter(e.target.value)}
+              >
+                <option value="all">All Sections</option>
+                {FLOOR_SECTIONS.map(s => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+
+            </div>
 
             {/* Seats table */}
             <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, overflow: 'hidden' }}>
@@ -257,7 +360,7 @@ export default function AdminPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {seats.map((seat, i) => {
+                    {filteredSeats.map((seat, i) => {
                       const sec = FLOOR_SECTIONS.find(s => s.id === seat.section)
                       return (
                         <tr key={seat.id} style={{ borderBottom: '1px solid #f1f5f9', background: i%2===0?'#fff':'#fafafa' }}>
@@ -295,18 +398,77 @@ export default function AdminPage() {
         {/* BOOKINGS */}
         {tab === 'bookings' && (
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, overflow: 'hidden' }}>
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              {/* SEARCH */}
+              <input
+                placeholder="Search user, email, seat..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12 }}
+              />
+
+              {/* STATUS */}
+              <select
+                value={statusFilter}
+                onChange={e => setStatusFilter(e.target.value as any)}
+                style={{ padding: '6px 10px', borderRadius: 6 }}
+              >
+                <option value="all">All</option>
+                <option value="active">Active</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+
+              {/* DATE */}
+              <input
+                type="date"
+                value={dateFilter}
+                onChange={e => setDateFilter(e.target.value)}
+                style={{ padding: '6px 10px', borderRadius: 6 }}
+              />
+
+              {/* BULK CANCEL */}
+              {selectedBookings.length > 0 && (
+                <button
+                  onClick={cancelMultipleBookings}
+                  style={{
+                    padding: '6px 12px',
+                    background: '#dc2626',
+                    color: '#fff',
+                    borderRadius: 6,
+                    border: 'none',
+                    fontSize: 12,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Cancel Selected ({selectedBookings.length})
+                </button>
+              )}
+            </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
                   <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                    {['User','Seat','Section','Date','Time','Status','Actions'].map(h => (
+                    {['','User','Seat','Section','Date','Time','Status','Actions'].map(h => (
                       <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {bookings.slice(0, 100).map((b, i) => (
+                  {filteredBookings.slice(0, 200).map((b, i) => (
                     <tr key={b.id} style={{ borderBottom: '1px solid #f1f5f9', background: i%2===0?'#fff':'#fafafa', opacity: b.status==='cancelled'?0.6:1 }}>
+                      <td style={{ padding: '9px 13px' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedBookings.includes(b.id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedBookings([...selectedBookings, b.id])
+                            } else {
+                              setSelectedBookings(selectedBookings.filter(id => id !== b.id))
+                            }
+                          }}
+                        />
+                      </td>
                       <td style={{ padding: '9px 13px', color: '#475569' }}>{b.user?.name || b.user?.email || '—'}</td>
                       <td style={{ padding: '9px 13px', fontWeight: 700, fontFamily: 'monospace' }}>{b.seat?.seat_number}</td>
                       <td style={{ padding: '9px 13px', color: '#475569' }}>{(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null)||FLOOR_SECTIONS.find(s=>s.id===b.seat?.section)?.shortLabel||'—'}</td>
@@ -329,6 +491,26 @@ export default function AdminPage() {
         {/* USERS */}
         {tab === 'users' && (
           <div style={{ background: '#fff', border: '1px solid #e2e8f0', borderRadius: 13, overflow: 'hidden' }}>
+            <div style={{ padding: '12px 14px', borderBottom: '1px solid #e2e8f0', display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+
+              <input
+                placeholder="Search name or email..."
+                value={userSearch}
+                onChange={e => setUserSearch(e.target.value)}
+                style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e2e8f0', fontSize: 12 }}
+              />
+
+              <select
+                value={roleFilter}
+                onChange={e => setRoleFilter(e.target.value as any)}
+                style={{ padding: '6px 10px', borderRadius: 6 }}
+              >
+                <option value="all">All Roles</option>
+                <option value="admin">Admin</option>
+                <option value="user">User</option>
+              </select>
+
+            </div>
             <div style={{ overflowX: 'auto' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
@@ -339,7 +521,7 @@ export default function AdminPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {users.map((u, i) => (
+                  {filteredUsers.map((u, i) => (
                     <tr key={u.id} style={{ borderBottom: '1px solid #f1f5f9', background: i%2===0?'#fff':'#fafafa' }}>
                       <td style={{ padding: '9px 13px', fontWeight: 600, color: '#0f172a' }}>{u.name || '—'}</td>
                       <td style={{ padding: '9px 13px', color: '#475569' }}>{u.email}</td>
