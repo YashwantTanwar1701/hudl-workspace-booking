@@ -642,9 +642,11 @@ function BookInner() {
 
           {/* Row 1: Date + Shift picker (left) · OS filter (right) */}
           <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', paddingBottom: 14 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10, padding: '7px 12px' }}>
-              <Calendar size={12} color="#3b82f6" />
-              <input type="date" value={date} min={today} onChange={e => { setDate(e.target.value); setSelectedIds(new Set()) }} style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', colorScheme: 'light dark' }} />
+            <div
+              onClick={() => { const el = document.querySelector<HTMLInputElement>('.date-picker-input'); el?.showPicker?.() }}
+              style={{ display: 'flex', alignItems: 'center', background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10, padding: '7px 12px', cursor: 'pointer' }}
+            >
+              <input type="date" value={date} min={today} onChange={e => { setDate(e.target.value); setSelectedIds(new Set()) }} className="date-picker-input" style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', colorScheme: 'light dark' }} />
             </div>
             <ShiftPicker
               date={date}

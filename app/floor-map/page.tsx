@@ -544,7 +544,7 @@ function LaneCard({
           </div>
           <div>
             <div style={{ fontSize: compact ? 14 : 15, fontWeight: 800, color: 'var(--ink-900)', lineHeight: 1.1 }}>{lane.title}</div>
-            <div style={{ fontSize: compact ? 10.5 : 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
+            {/*<div style={{ fontSize: compact ? 10.5 : 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>*/}
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
