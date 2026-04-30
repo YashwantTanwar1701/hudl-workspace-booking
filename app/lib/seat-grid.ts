@@ -3,7 +3,7 @@
  * and the Book page. Single source of truth — edit here to update both.
  */
 
-export type LaneGroup = 'top-left' | 'top-hr' | 'top-th' | 'cafeteria' | 'training' | 'rooms' | 'booth' | 'pod'
+export type LaneGroup = 'top-left' | 'top-hr' | 'top-th' | 'cafeteria' | 'training' | 'rooms' | 'booth'
 
 export type LaneSpec = {
   id: string
@@ -12,7 +12,8 @@ export type LaneSpec = {
   subtitle: string
   icon: string                     // emoji OR raw SVG markup string
   iconIsSvg?: boolean
-  sectionId: string                // matches FLOOR_SECTIONS.id
+  sectionId: string                // kept for reference / legacy
+  roomId?: number                  // DB room.id — primary matching key
   cols: number
   colsRows: number[]
   readFromBottom: boolean
@@ -65,6 +66,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '6 columns × 24 rows · 144 seats · paired rows',
     icon: '🖥️',
     sectionId: 'server-room-lane',
+    roomId: 1,
     cols: 6,
     colsRows: SERVER_ROWS,
     readFromBottom: false,
@@ -81,6 +83,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '20 columns · variable rows · 122 seats · 2-col bands',
     icon: '💼',
     sectionId: 'hr-it-lane',
+    roomId: 3,
     cols: 20,
     colsRows: HR_ROWS,
     readFromBottom: false,
@@ -97,6 +100,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '20 columns · variable rows (read bottom-up) · 141 seats · 2-col bands',
     icon: '🏢',
     sectionId: 'town-hall-lane',
+    roomId: 2,
     cols: 20,
     colsRows: TH_ROWS,
     readFromBottom: true,
@@ -114,6 +118,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '10 columns × 10 rows · Col 5 R2/R3 missing · 98 seats',
     icon: '☕',
     sectionId: 'cafeteria-zone',
+    roomId: 20,
     cols: 10,
     colsRows: Array(10).fill(10),
     readFromBottom: false,
@@ -136,6 +141,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '4 columns × 5 rows · 20 seats',
     icon: '📚',
     sectionId: 'training-room-1',
+    roomId: 8,
     cols: 4,
     colsRows: Array(4).fill(5),
     readFromBottom: false,
@@ -152,6 +158,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '6 columns × 4 rows · 24 seats',
     icon: '📚',
     sectionId: 'training-room-2',
+    roomId: 9,
     cols: 6,
     colsRows: Array(6).fill(4),
     readFromBottom: false,
@@ -169,6 +176,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '6 columns × 4 rows · 24 seats',
     icon: '📚',
     sectionId: 'training-room-3',
+    roomId: 10,
     cols: 6,
     colsRows: Array(6).fill(4),
     readFromBottom: false,
@@ -187,6 +195,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '5 cols · bottom-row 5 + top-row 3 (Cols 3-5) · 8 seats',
     icon: '🚀',
     sectionId: 'product-team',
+    roomId: 19,
     cols: 5,
     colsRows: [1, 1, 2, 2, 2],
     readFromBottom: true,
@@ -203,6 +212,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '3 cols × 7 rows · Col 2 only R1+R7, Cols 1&3 only R2-R6 · 12 seats',
     icon: '🏛️',
     sectionId: 'conference-12pax',
+    roomId: 15,
     cols: 3,
     colsRows: [7, 7, 7],
     readFromBottom: false,
@@ -223,6 +233,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '3 cols · Cols 1-2 = 3 rows, Col 3 = 4 rows · 10 seats',
     icon: '⚙️',
     sectionId: 'hr-ops-it',
+    roomId: 4,
     cols: 3,
     colsRows: [3, 3, 4],
     readFromBottom: false,
@@ -240,6 +251,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '2 cols × 2 rows · 4 seats',
     icon: '🤝',
     sectionId: 'meeting-4pax-1',
+    roomId: 16,
     cols: 2,
     colsRows: [2, 2],
     readFromBottom: false,
@@ -255,6 +267,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '2 cols × 2 rows · 4 seats',
     icon: '🤝',
     sectionId: 'meeting-4pax-2',
+    roomId: 17,
     cols: 2,
     colsRows: [2, 2],
     readFromBottom: false,
@@ -271,6 +284,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '2 cols × 1 row · 2 seats',
     icon: '📟',
     sectionId: 'phone-booth-2s-1',
+    roomId: 5,
     cols: 2,
     colsRows: [1, 1],
     readFromBottom: false,
@@ -286,6 +300,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '2 cols × 1 row · 2 seats',
     icon: '📟',
     sectionId: 'phone-booth-2s-2',
+    roomId: 6,
     cols: 2,
     colsRows: [1, 1],
     readFromBottom: false,
@@ -301,6 +316,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '2 cols × 1 row · 2 seats',
     icon: '📟',
     sectionId: 'phone-booth-2s-3',
+    roomId: 7,
     cols: 2,
     colsRows: [1, 1],
     readFromBottom: false,
@@ -316,6 +332,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '1 col × 1 row · 1 seat',
     icon: '📞',
     sectionId: 'phone-booth-1s-1',
+    roomId: 11,
     cols: 1,
     colsRows: [1],
     readFromBottom: false,
@@ -331,6 +348,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '1 col × 1 row · 1 seat',
     icon: '📞',
     sectionId: 'phone-booth-1s-2',
+    roomId: 12,
     cols: 1,
     colsRows: [1],
     readFromBottom: false,
@@ -346,6 +364,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '1 col × 1 row · 1 seat',
     icon: '📞',
     sectionId: 'phone-booth-1s-3',
+    roomId: 13,
     cols: 1,
     colsRows: [1],
     readFromBottom: false,
@@ -363,6 +382,7 @@ export const LANES: LaneSpec[] = [
     icon: WELLNESS_BED_SVG,
     iconIsSvg: true,
     sectionId: 'wellness-room',
+    roomId: 14,
     cols: 1,
     colsRows: [1],
     readFromBottom: false,
@@ -379,6 +399,7 @@ export const LANES: LaneSpec[] = [
     subtitle: '6 seats · 1 row · 2-seat bands',
     icon: '🪑',
     sectionId: 'open-meeting-pod',
+    roomId: 21,
     cols: 6,
     colsRows: [1, 1, 1, 1, 1, 1],
     readFromBottom: false,
@@ -386,7 +407,7 @@ export const LANES: LaneSpec[] = [
     bgColor: '#E0F2F1',
     darkBgColor: '#0a1f1e',
     accentColor: '#00796B',
-    group: 'pod',
+    group: 'booth',
   },
 ]
 

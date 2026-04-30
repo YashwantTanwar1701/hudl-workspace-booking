@@ -129,7 +129,7 @@ export default function DashboardPage() {
   const [roomMap,      setRoomMap]     = useState<RoomMap>({})
   const [allBookings, setAllBookings] = useState<BFull[]>([])
   const [loading,     setLoading]     = useState(true)
-  const [tab,         setTab]         = useState<'overview'|'patterns'|'sections'|'company'|'history'>('overview')
+  const [tab, setTab] = useState<string>('overview')
   const [preset,      setPreset]      = useState<RangePreset>('7d')
   const [customFrom,  setCustomFrom]  = useState('')
   const [customTo,    setCustomTo]    = useState('')
@@ -202,13 +202,18 @@ export default function DashboardPage() {
     })
   }, [bookings, histFilter, histSearch])
 
-  const TABS = [
-    { id: 'overview',  label: 'Overview' },
-    { id: 'patterns',  label: 'Patterns' },
-    { id: 'sections',  label: 'Sections' },
-    ...(isAdmin ? [{ id: 'company', label: 'Company' }] : []),
-    { id: 'history',   label: 'History' },
-  ] as const
+  const TABS = isAdmin
+    ? [
+        { id: 'overview', label: 'Overview' },
+        { id: 'patterns', label: 'Patterns' },
+        { id: 'sections', label: 'Sections' },
+        { id: 'company',  label: 'Company'  },
+        { id: 'history',  label: 'History'  },
+      ] as const
+    : [
+        { id: 'overview', label: 'My Overview' },
+        { id: 'history',  label: 'My Bookings' },
+      ] as const
 
   return (
     <div style={{ background: 'var(--muted-bg)', minHeight: '100vh' }}>
@@ -218,7 +223,9 @@ export default function DashboardPage() {
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, marginBottom: 14 }}>
             <div>
               <h1 style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink-900)', marginBottom: 3, display: 'flex', alignItems: 'center', gap: 9 }}><BarChart2 size={21} color="#2563eb" /> Analytics</h1>
-              <p style={{ color: 'var(--muted)', fontSize: 13 }}>{isAdmin ? 'Company-wide & personal insights' : 'Your workspace usage insights'}</p>
+              <p style={{ color: 'var(--muted)', fontSize: 13 }}>
+                {isAdmin ? 'Company-wide insights + your personal booking analytics' : 'Your personal booking history and usage insights'}
+              </p>
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
               {/* Date range presets */}
@@ -247,9 +254,8 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Range label */}
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-            Showing: <strong>{from}</strong> to <strong>{to}</strong> · {bookings.length} bookings found
+            Showing: <strong>{from}</strong> to <strong>{to}</strong> · {isAdmin ? `${allBookings.length} total company bookings` : `${bookings.length} of your bookings`}
           </div>
 
           {/* Tabs */}

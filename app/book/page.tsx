@@ -116,7 +116,7 @@ function LaneBookingCard({
         overflow: 'hidden',
         boxShadow: sel > 0 ? `0 0 0 3px ${lane.accentColor}22` : '0 1px 4px rgba(0,0,0,0.05)',
         transition: 'all 0.2s',
-        scrollMarginTop: 130,
+        scrollMarginTop: 240,
         position: 'relative',
       }}
     >
@@ -359,10 +359,10 @@ function SectionPills({
 }
 
 /* ─── Confirm Modal (existing) ─── */
-function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endTime, isOvernight, endDate, onConfirm, loading, error }: {
+function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endTime, isOvernight, endDate, onConfirm, loading, error, roomMap }: {
   open: boolean; onClose: () => void; seats: Seat[]; selectedIds: Set<string>
   date: string; startTime: string; endTime: string; isOvernight: boolean; endDate: string
-  onConfirm: () => void; loading: boolean; error: string
+  onConfirm: () => void; loading: boolean; error: string; roomMap: import('../types').RoomMap
 }) {
   const { theme } = useTheme()
   if (!open) return null
@@ -392,7 +392,7 @@ function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endT
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 180, overflowY: 'auto' }}>
             {sel.map(seat => {
-              const lane = LANES.find(l => l.sectionId === seat.section)
+              const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
               return (
                 <div key={seat.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 9 }}>
                   <div
@@ -533,9 +533,9 @@ function BookInner() {
 
   const seatsByLane: Record<string, Seat[]> = useMemo(() => {
     const result: Record<string, Seat[]> = {}
-    LANES.forEach(lane => { result[lane.id] = seats.filter(s => s.section === lane.sectionId) })
+    LANES.forEach(lane => { result[lane.id] = seats.filter(s => s.room_id != null && lane.roomId != null && s.room_id === lane.roomId) })
     return result
-  }, [seats])
+  }, [seats, roomMap])
 
   const toggleSeat = useCallback((seat: Seat) => {
     if (!seat.is_active) return
@@ -548,7 +548,7 @@ function BookInner() {
     if (selectedIds.size === 0) return false
     const wellness = LANES.find(l => l.id === 'wellness')
     if (!wellness) return false
-    return seats.filter(s => selectedIds.has(s.id)).every(s => s.section === wellness.sectionId)
+    return seats.filter(s => selectedIds.has(s.id)).every(s => s.room_id != null && wellness.roomId != null && s.room_id === wellness.roomId)
   }, [selectedIds, seats])
 
   // When switching to wellness-only, cap end time at startTime + 3hrs
@@ -563,19 +563,10 @@ function BookInner() {
 
   async function performBooking() {
     if (!user || selectedIds.size === 0) return
-    // 30-min advance check — bypassed entirely for Wellness-only selections
-    if (!allSelectedAreWellness && date === today) {
-      const [sh, sm] = effectiveStart.split(':').map(Number)
-      const nowM = new Date().getHours() * 60 + new Date().getMinutes()
-      if ((sh * 60 + sm) - nowM < 30) {
-        setError('Must book at least 30 min before start time.')
-        return
-      }
-    }
     setSubmitting(true); setError('')
     const sel = seats.filter(s => selectedIds.has(s.id))
     const inserts = sel.flatMap(seat => isOvernight ? [
-      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:59', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:59`, shift_id: selectedShiftId },
+      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:00`, shift_id: selectedShiftId },
       { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: effectiveEndTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${effectiveEndTime}:00`, shift_id: selectedShiftId },
     ] : [
       { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: effectiveEndTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${effectiveEndTime}:00`, shift_id: selectedShiftId },
@@ -616,9 +607,7 @@ function BookInner() {
 
   const totalAvail = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
   const dur = fmtDur(minutesBetween(effectiveStart, effectiveEndTime, isOvernight))
-  const noSlots = date === today && validStarts.length === 0
-  // Note: noSlots disables bookings UNLESS the user only has Wellness selected
-  const canBook = selectedIds.size > 0 && (!noSlots || allSelectedAreWellness)
+  const canBook = selectedIds.size > 0
 
   if (success) return (
     <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -651,16 +640,6 @@ function BookInner() {
             </div>
           </div>
 
-          {/* 30-min warning */}
-          {date === today && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', marginBottom: 12, background: noSlots ? '#fef2f2' : '#fffbeb', border: `1px solid ${noSlots ? '#fecaca' : '#fde68a'}`, borderRadius: 9, fontSize: 12, color: noSlots ? '#b91c1c' : '#92400e' }}>
-              <AlertTriangle size={12} color={noSlots ? '#dc2626' : '#d97706'} />
-              {noSlots
-                ? 'No slots available today — all remaining slots are within the 30-min booking window. (Wellness Room remains bookable for emergencies.)'
-                : 'Seats must be booked at least 30 min before start time. Past slots are hidden. Wellness Room is exempt.'}
-            </div>
-          )}
-
           {/* Row 1: Date + Shift picker (left) · OS filter (right) */}
           <div style={{ display: 'flex', gap: 7, flexWrap: 'wrap', alignItems: 'center', paddingBottom: 14 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10, padding: '7px 12px' }}>
@@ -675,8 +654,7 @@ function BookInner() {
               onOvernightChange={v => { setIsOvernight(v); setSelectedIds(new Set()) }}
               onShiftIdChange={id => setSelectedShiftId(id)}
               validStartSlots={validStarts}
-              disabled={noSlots}
-              restrictPastShifts={true}
+              restrictPastShifts={false}
             />
             <div style={{ marginLeft: 'auto', display: 'flex', gap: 2, background: 'var(--muted-bg)', border: '1.5px solid var(--card-border)', borderRadius: 10, padding: 3 }}>
               {([['', 'All'], ['mac', 'Mac'], ['windows', 'Win'], ['other', 'Seat Only']] as const).map(([val, label]) => (
@@ -745,7 +723,7 @@ function BookInner() {
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
                   {seats.filter(s => selectedIds.has(s.id)).map(seat => {
-                    const lane = LANES.find(l => l.sectionId === seat.section)
+                    const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
                     return (
                       <div key={seat.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8 }}>
                         <div
@@ -840,7 +818,7 @@ function BookInner() {
         </div>
       </div>
 
-      <ConfirmModal open={confirmOpen} onClose={() => setConfirmOpen(false)} seats={seats} selectedIds={selectedIds} date={date} startTime={effectiveStart} endTime={effectiveEndTime} isOvernight={isOvernight} endDate={endDate} onConfirm={performBooking} loading={submitting} error={error} />
+      <ConfirmModal open={confirmOpen} onClose={() => setConfirmOpen(false)} seats={seats} selectedIds={selectedIds} date={date} startTime={effectiveStart} endTime={effectiveEndTime} isOvernight={isOvernight} endDate={endDate} onConfirm={performBooking} loading={submitting} error={error} roomMap={roomMap} />
       <WellnessConfirmModal open={wellnessConfirmOpen} onClose={() => setWellnessConfirmOpen(false)} onConfirm={handleWellnessConfirm} count={selectedIds.size} />
 
       <style dangerouslySetInnerHTML={{ __html: `

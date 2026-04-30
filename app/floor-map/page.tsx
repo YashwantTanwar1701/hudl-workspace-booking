@@ -104,6 +104,7 @@ export default function SeatLayoutPage() {
 
   // All hooks declared first — before any conditional returns
   const [seats, setSeats] = useState<Seat[]>([])
+  const [rooms, setRooms] = useState<Record<number, string>>({})
   const [bookings, setBookings] = useState<Booking[]>([])
   const [allDayBookings, setAllDayBookings] = useState<Booking[]>([])
   const [loading, setLoading] = useState(true)
@@ -126,8 +127,16 @@ export default function SeatLayoutPage() {
 
   async function fetchSeats() {
     setLoading(true)
-    const { data } = await supabase.from('seats').select('*').order('seat_number')
-    if (data) setSeats(data as Seat[])
+    const [seatsRes, roomsRes] = await Promise.all([
+      supabase.from('seats').select('*').order('seat_number'),
+      supabase.from('room').select('id, name'),
+    ])
+    if (seatsRes.data) setSeats(seatsRes.data as Seat[])
+    if (roomsRes.data) {
+      const map: Record<number, string> = {}
+      roomsRes.data.forEach((r: { id: number; name: string }) => { map[r.id] = r.name })
+      setRooms(map)
+    }
     setLoading(false)
   }
 
@@ -166,10 +175,10 @@ export default function SeatLayoutPage() {
   const seatsByLane: Record<string, Seat[]> = useMemo(() => {
     const result: Record<string, Seat[]> = {}
     LANES.forEach(lane => {
-      result[lane.id] = seats.filter(s => s.section === lane.sectionId)
+      result[lane.id] = seats.filter(s => s.room_id != null && lane.roomId != null && s.room_id === lane.roomId)
     })
     return result
-  }, [seats])
+  }, [seats, rooms])
 
   const handleRefresh = async () => {
     setRefreshing(true)
@@ -180,7 +189,7 @@ export default function SeatLayoutPage() {
   const lanesByGroup = useMemo(() => {
     const m: Record<LaneGroup, LaneSpec[]> = {
       'top-left': [], 'top-hr': [], 'top-th': [], 'cafeteria': [],
-      'training': [], 'rooms': [], 'booth': [], 'pod': [],
+      'training': [], 'rooms': [], 'booth': [],
     }
     LANES.forEach(l => m[l.group].push(l))
     return m
@@ -332,17 +341,13 @@ export default function SeatLayoutPage() {
           {lanesByGroup['booth'].map(renderLane)}
         </div>
 
-        <SectionHeader title="Open Meeting Pod" />
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginBottom: 18 }}>
-          {lanesByGroup['pod'].map(renderLane)}
-        </div>
       </div>
 
       {seatTip && (
         <PortalTooltip x={seatTip.x} y={seatTip.y}>
           <SeatTip
             seat={seatTip.seat}
-            lane={LANES.find(l => l.sectionId === seatTip.seat.section)}
+            lane={LANES.find(l => l.roomId != null && l.roomId === seatTip.seat.room_id)}
             windowBooked={bookedIds.has(seatTip.seat.id)}
             isMine={myIds.has(seatTip.seat.id)}
             allDayBookings={allDayBookings}
@@ -524,7 +529,7 @@ function LaneCard({
         overflow: 'hidden',
         position: 'relative',
         boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-        scrollMarginTop: 130,
+        scrollMarginTop: 200,
       }}
     >
       <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: lane.accentColor }} />
@@ -532,7 +537,7 @@ function LaneCard({
       <div style={{ padding: compact ? '14px 18px 10px' : '16px 20px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', borderBottom: '1px solid var(--card-border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div
-            style={{ width: compact ? 30 : 32, height: compact ? 30 : 32, borderRadius: 8, background: cardBg, color: lane.accentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 15 : 16 }}
+            style={{ width: compact ? 30 : 32, height: compact ? 30 : 32, borderRadius: 8, background: cardBg, color: lane.accentColor, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: compact ? 15 : 16, flexShrink: 0 }}
             {...(lane.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon } } : {})}
           >
             {lane.iconIsSvg ? null : lane.icon}
@@ -542,7 +547,6 @@ function LaneCard({
             <div style={{ fontSize: compact ? 10.5 : 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
           </div>
         </div>
-
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <StatChip dot="#22c55e" label={`${av} avail`} />
           <StatChip dot="#ef4444" label={`${oc} occupied`} />
