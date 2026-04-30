@@ -3,7 +3,7 @@
  * and the Book page. Single source of truth — edit here to update both.
  */
 
-export type LaneGroup = 'top-left' | 'top-hr' | 'top-th' | 'cafeteria' | 'training' | 'rooms' | 'booth'
+export type LaneGroup = 'top-left' | 'top-hr' | 'top-th' | 'cafeteria' | 'training' | 'rooms' | 'booth' | 'pod'
 
 export type LaneSpec = {
   id: string
@@ -118,8 +118,8 @@ export const LANES: LaneSpec[] = [
     colsRows: Array(10).fill(10),
     readFromBottom: false,
     excludeCells: [
-      { col: 5, row: 2 },
       { col: 5, row: 3 },
+      { col: 5, row: 4 },
     ],
     colGaps: [4],
     rowGaps: [2, 4, 6, 8],
@@ -370,6 +370,23 @@ export const LANES: LaneSpec[] = [
     darkBgColor: '#1c0d14',
     accentColor: '#E91E63',
     group: 'rooms',
+  },
+  /* ── Open Meeting Pod ── */
+  {
+    id: 'open_pod',
+    prefix: 'OMP',
+    title: 'Open Meeting Pod',
+    subtitle: '6 seats · 1 row · 2-seat bands',
+    icon: '🪑',
+    sectionId: 'open-meeting-pod',
+    cols: 6,
+    colsRows: [1, 1, 1, 1, 1, 1],
+    readFromBottom: false,
+    colGaps: [2, 4],       // gaps after C2 and C4 → three bands of 2
+    bgColor: '#E0F2F1',
+    darkBgColor: '#0a1f1e',
+    accentColor: '#00796B',
+    group: 'pod',
   },
 ]
 

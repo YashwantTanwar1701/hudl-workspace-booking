@@ -180,7 +180,7 @@ export default function SeatLayoutPage() {
   const lanesByGroup = useMemo(() => {
     const m: Record<LaneGroup, LaneSpec[]> = {
       'top-left': [], 'top-hr': [], 'top-th': [], 'cafeteria': [],
-      'training': [], 'rooms': [], 'booth': [],
+      'training': [], 'rooms': [], 'booth': [], 'pod': [],
     }
     LANES.forEach(l => m[l.group].push(l))
     return m
@@ -330,6 +330,11 @@ export default function SeatLayoutPage() {
         <SectionHeader title="Meeting Rooms & Phone Booths" />
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12, marginBottom: 18 }}>
           {lanesByGroup['booth'].map(renderLane)}
+        </div>
+
+        <SectionHeader title="Open Meeting Pod" />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 12, marginBottom: 18 }}>
+          {lanesByGroup['pod'].map(renderLane)}
         </div>
       </div>
 
