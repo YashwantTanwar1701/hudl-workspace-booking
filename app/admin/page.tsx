@@ -88,7 +88,7 @@ function UserRoleModal({ u, allRoles, onSave, onClose }: {
           <div style={{ fontSize:12, color:'var(--muted)', marginBottom:14 }}>{u.email}</div>
           <label style={{ fontSize:11, fontWeight:700, color:'var(--muted)', display:'block', marginBottom:6, textTransform:'uppercase', letterSpacing:'0.05em' }}>Role</label>
           <select value={role} onChange={e=>setRole(e.target.value)} style={inp}>
-            {allRoles.map(r => <option key={r} value={r}>{r}</option>)}
+            {allRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
           </select>
           <div style={{ marginTop:8, fontSize:11, color:'var(--muted)' }}>Roles are fetched from the database user_role enum.</div>
         </div>
@@ -276,13 +276,19 @@ export default function AdminPage() {
     if (r.data) { setRooms(r.data as Room[]); setRoomMap(buildRoomMap(r.data as Room[])) }
     if (d.data) setDepartments(d.data as Department[])
     if (p.data) setPermissions(p.data as RolePermission[])
-    // Populate roles from pg_enum (most authoritative source)
+    // Populate roles from pg_enum (most authoritative — canonical underscore values)
     if (rolesRes.data && Array.isArray(rolesRes.data) && rolesRes.data.length > 0) {
-      setAllRoles(rolesRes.data as string[])
+      // pg_enum is the source of truth — deduplicate and sort
+      const enumRoles = [...new Set(rolesRes.data as string[])].sort()
+      setAllRoles(enumRoles)
     } else if (u.data) {
-      // Fallback: derive from users table
-      const roles = Array.from(new Set((u.data as UserProfile[]).map(x => x.role).filter(Boolean))) as string[]
-      if (roles.length > 0) setAllRoles([...new Set([...roles, 'user', 'admin'])])
+      // Fallback: derive from users table, normalise spaces→underscores, deduplicate
+      const roles = Array.from(new Set(
+        (u.data as UserProfile[])
+          .map(x => x.role?.trim().replace(/\s+/g, '_').toLowerCase())
+          .filter(Boolean)
+      )) as string[]
+      setAllRoles([...new Set([...roles, 'user', 'admin'])].sort())
     }
     setLoading(false)
   }
@@ -561,7 +567,7 @@ export default function AdminPage() {
               <input placeholder="Search name or email…" value={userSearch} onChange={e => setUserSearch(e.target.value)} style={inp({ minWidth: 220 })} />
               <select value={roleFilter} onChange={e => setRoleFilter(e.target.value)} style={inp()}>
                 <option value="all">All Roles</option>
-                {allRoles.map(r => <option key={r} value={r}>{r}</option>)}
+                {allRoles.map(r => <option key={r} value={r}>{r.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</option>)}
               </select>
             </div>
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, overflow: 'hidden' }}>
@@ -575,7 +581,7 @@ export default function AdminPage() {
                       <tr key={u.id} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
                         <td style={{ padding: '9px 13px', fontWeight: 600, color: 'var(--ink-900)' }}>{u.name||'—'}</td>
                         <td style={{ padding: '9px 13px', color: 'var(--ink-700)' }}>{u.email}</td>
-                        <td style={{ padding: '9px 13px' }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: u.role === 'admin' ? '#fef3c7' : 'var(--muted-bg)', color: u.role === 'admin' ? '#92400e' : 'var(--muted)' }}>{u.role}</span></td>
+                        <td style={{ padding: '9px 13px' }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: u.role === 'admin' ? '#fef3c7' : 'var(--muted-bg)', color: u.role === 'admin' ? '#92400e' : 'var(--muted)' }}>{u.role?.replace(/_/g, ' ')}</span></td>
                         <td style={{ padding: '9px 13px', color: 'var(--muted)' }}>{new Date(u.created_at).toLocaleDateString('en-IN', { day:'numeric', month:'short', year:'numeric' })}</td>
                         <td style={{ padding: '9px 13px' }}><button onClick={() => setUserModal(u)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', color: 'var(--ink-700)' }}>Edit Role</button></td>
                       </tr>
@@ -701,7 +707,9 @@ USING (auth.role() = 'authenticated');`}</pre>
                       <th style={{ padding: '12px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', minWidth: 200 }}>Permission</th>
                       {allRoles.map(role => (
                         <th key={role} style={{ padding: '12px 16px', textAlign: 'center', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>
-                          <span style={{ padding: '3px 10px', borderRadius: 99, background: role === 'admin' ? '#fef3c7' : 'var(--surface-1)', color: role === 'admin' ? '#92400e' : 'var(--muted)' }}>{role}</span>
+                          <span style={{ padding: '3px 10px', borderRadius: 99, background: role === 'admin' ? '#fef3c7' : 'var(--surface-1)', color: role === 'admin' ? '#92400e' : 'var(--muted)' }}>
+                            {role.replace(/_/g, ' ')}
+                          </span>
                         </th>
                       ))}
                     </tr>
