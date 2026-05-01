@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from './AuthProvider'
-import { LayoutGrid, Map, PlusSquare, ClipboardList, BarChart2, Settings, LogOut, User, Sun, Moon } from 'lucide-react'
+import { LayoutGrid, Map, PlusSquare, ClipboardList, BarChart2, Settings, LogOut, User, Users, Sun, Moon } from 'lucide-react'
 import { useTheme } from './ThemeProvider'
 
 export default function Navbar() {
@@ -15,6 +15,7 @@ export default function Navbar() {
     { href: '/floor-map',   label: 'Floor Map',   icon: Map          },
     { href: '/book',        label: 'Book Seat',   icon: PlusSquare   },
     { href: '/my-bookings', label: 'My Bookings', icon: ClipboardList },
+  { href: '/my-team', label: 'My Team', icon: Users },
     { href: '/dashboard',   label: 'Analytics',   icon: BarChart2    },
     ...(isAdmin ? [{ href: '/admin', label: 'Admin', icon: Settings }] : []),
   ]

@@ -10,32 +10,30 @@ import {
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
-import { FLOOR_SECTIONS, OS_META, getSectionMeta, buildRoomMap } from '../types'
+import { FLOOR_SECTIONS, OS_META, buildRoomMap } from '../types'
 import type { Booking, Seat, OsType, Room, RoomMap } from '../types'
 
 type BFull = Booking & { seat: Seat }
 
-function sectionEmoji(id: string) {
-  if (id.includes('server'))       return '🖥️'
-  if (id.includes('town-hall-l'))  return '🏢'
-  if (id.includes('hr-it'))        return '💼'
-  if (id.includes('hr-ops'))       return '⚙️'
-  if (id.includes('2s-'))          return '📟'
-  if (id.includes('training'))     return '📚'
-  if (id.includes('1s-'))          return '📞'
-  if (id.includes('wellness'))     return '🧘'
-  if (id.includes('conference'))   return '🏛️'
-  if (id.includes('meeting'))      return '🤝'
-  if (id.includes('product'))      return '🚀'
-  if (id.includes('cafeteria'))    return '☕'
-  return '💡'
+// Map room_id → emoji (matches seat-grid.ts room IDs)
+const ROOM_EMOJI: Record<number, string> = {
+  1:'🖥️', 2:'🏢', 3:'💼', 4:'⚙️',
+  5:'📟', 6:'📟', 7:'📟',
+  8:'📚', 9:'📚', 10:'📚',
+  11:'📞', 12:'📞', 13:'📞',
+  14:'🧘', 15:'🏛️',
+  16:'🤝', 17:'🤝', 18:'🤝',
+  19:'🚀', 20:'☕', 21:'🪑',
+}
+function roomEmoji(roomId: number | null | undefined): string {
+  return roomId ? (ROOM_EMOJI[roomId] || '💡') : '💡'
 }
 
 function CancelDialog({ booking, onConfirm, onClose, loading }: {
   booking: BFull | null; onConfirm: () => void; onClose: () => void; loading: boolean
 }) {
   if (!booking) return null
-  const sec = FLOOR_SECTIONS.find(s => s.id === booking.seat?.section)
+  const sec = FLOOR_SECTIONS.find(s => s.roomId === booking.seat?.room_id)
   const [sh, sm] = booking.start_time.split(':').map(Number)
   const [eh, em] = booking.end_time.split(':').map(Number)
   let mins = (eh*60+em)-(sh*60+sm); if(mins<0) mins+=1440
@@ -56,7 +54,7 @@ function CancelDialog({ booking, onConfirm, onClose, loading }: {
         </div>
         <div style={{ padding: '16px 22px' }}>
           <div style={{ background: '#fef2f2', border: '1.5px solid #fecaca', borderRadius: 11, padding: '12px 14px', display: 'flex', gap: 11, alignItems: 'center', marginBottom: 14 }}>
-            <div style={{ width: 40, height: 40, borderRadius: 10, background: sec?.color||'#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{sectionEmoji(booking.seat?.section||'')}</div>
+            <div style={{ width: 40, height: 40, borderRadius: 10, background: sec?.color||'#f1f5f9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 19, flexShrink: 0 }}>{roomEmoji(booking.seat?.room_id)}</div>
             <div style={{ flex: 1 }}>
               <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--ink-900)', fontFamily: 'monospace', marginBottom: 1 }}>{booking.seat?.seat_number}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>{sec?.label}</div>
@@ -135,7 +133,7 @@ export default function MyBookingsPage() {
 
   return (
     <div style={{ background: 'var(--muted-bg)', minHeight: '100vh' }}>
-      <div style={{ background: 'var(--card-bg)', borderBottom: '1px solid var(--card-border)', padding: '22px 24px 0' }}>
+      <div style={{ position: 'sticky', top: 60, zIndex: 50, background: 'var(--card-bg)', borderBottom: '1px solid var(--card-border)', padding: '16px 24px 0' }}>
         <div style={{ maxWidth: 940, margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 14, marginBottom: 18 }}>
             <div>
@@ -185,7 +183,7 @@ export default function MyBookingsPage() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
             {shown.map(b => {
-              const sec = FLOOR_SECTIONS.find(s => s.id === b.seat?.section)
+              const sec = FLOOR_SECTIONS.find(s => s.roomId === b.seat?.room_id)
               const dur = getDur(b)
               const upcoming = isUpcoming(b)
               const os = b.seat?.os_type as OsType | undefined
@@ -193,7 +191,7 @@ export default function MyBookingsPage() {
               return (
                 <div key={b.id} style={{ display: 'flex', alignItems: 'center', gap: 13, background: 'var(--card-bg)', border: `1.5px solid ${b.status==='cancelled'?'#f1f5f9':'#e2e8f0'}`, borderRadius: 13, padding: '14px 18px', opacity: b.status==='cancelled'?0.65:1, boxShadow: b.status==='active'?'0 1px 4px rgba(0,0,0,0.04)':'none' }}>
                   <div style={{ width: 46, height: 46, borderRadius: 11, background: sec?.color||'#f8fafc', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 21, flexShrink: 0, border: `1px solid ${sec?.accent||'#e2e8f0'}22` }}>
-                    {sectionEmoji(b.seat?.section||'')}
+                    {roomEmoji(b.seat?.room_id)}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap', marginBottom: 4 }}>
@@ -213,7 +211,7 @@ export default function MyBookingsPage() {
                       <span style={{ color: '#e2e8f0' }}>·</span>
                       <span style={{ color: 'var(--ink-300)' }}>{dur}</span>
                       <span style={{ color: '#e2e8f0' }}>·</span>
-                      <span style={{ color: 'var(--ink-300)' }}>{(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null) || sec?.label || b.seat?.section}</span>
+                      <span style={{ color: 'var(--ink-300)' }}>{(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null) || sec?.label || 'Unknown'}</span>
                     </div>
                   </div>
                   {upcoming && (

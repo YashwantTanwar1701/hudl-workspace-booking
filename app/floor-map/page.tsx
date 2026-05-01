@@ -10,7 +10,7 @@ import { useTheme } from '../components/ThemeProvider'
 import ShiftPicker from '../components/ShiftPicker'
 import { getCurrentTimeSlot, getDefaultEndTime, OS_META } from '../types'
 import type { Seat, Booking, OsType } from '../types'
-import { LANES, BIG_GROUPS, buildLaneCells, type LaneSpec, type LaneGroup } from '../lib/seat-grid'
+import { LANES, BIG_GROUPS, buildLaneCells, getLaneName, type LaneSpec, type LaneGroup } from '../lib/seat-grid'
 
 /* ─── Portal-based tooltip (renders at document.body so it isn't clipped by overflow:hidden cards) ─── */
 function PortalTooltip({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
@@ -34,12 +34,14 @@ function OsIcon({ os, size = 12 }: { os: OsType; size?: number }) {
 }
 
 /* ─── Seat hover details ─── */
-function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
+function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings, isAdmin, roomNames }: {
   seat: Seat
   lane: LaneSpec | undefined
   windowBooked: boolean
   isMine: boolean
   allDayBookings: Booking[]
+  isAdmin: boolean
+  roomNames: Record<number, string>
 }) {
   const seatBks = allDayBookings
     .filter(b => b.seat_id === seat.id && b.status === 'active')
@@ -69,11 +71,23 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
         ) : (
           <span>{lane?.icon ?? '💡'}</span>
         )}
-        {lane?.title ?? seat.section}
+        {lane ? getLaneName(lane, roomNames) : 'Unknown'}
       </div>
       <div style={{ fontSize: 12, fontWeight: 700, color: statusColor, marginBottom: freeFrom ? 6 : 8 }}>{statusLabel}</div>
       {isInactive && seat.notes && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>📝 {seat.notes}</div>}
       {freeFrom && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={10} /> {freeFrom}</div>}
+      {(isAdmin || isMine) && currentBk && (currentBk as any).booked_for && (() => {
+        const bf: string = (currentBk as any).booked_for
+        const match = bf.match(/^(.+?)\s*\[(.+?)\]$/)
+        const name = match ? match[1] : bf
+        const empId = match ? match[2] : null
+        return (
+          <div style={{ fontSize: 11, color: '#93c5fd', marginBottom: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>👤 {name}</span>
+            {isAdmin && empId && <span style={{ fontFamily: 'monospace', color: '#7dd3fc', fontSize: 10, paddingLeft: 16 }}>EMP ID: {empId}</span>}
+          </div>
+        )
+      })()}
       {seatBks.length > 0 && (
         <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: 8, marginTop: 4 }}>
           <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Today</div>
@@ -81,6 +95,7 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#fca5a5', marginBottom: 3 }}>
               <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
               {b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}
+              {isAdmin && (b as any).booked_for && <span style={{ color: '#93c5fd', marginLeft: 4 }}>· {(b as any).booked_for}</span>}
             </div>
           ))}
         </div>
@@ -96,7 +111,7 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings }: {
 
 /* ───────── Page ───────── */
 export default function SeatLayoutPage() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, profile, loading: authLoading } = useAuth()
   const router = useRouter()
   const today = new Date().toLocaleDateString('en-CA')
   const initStart = getCurrentTimeSlot()
@@ -124,6 +139,23 @@ export default function SeatLayoutPage() {
 
   useEffect(() => { if (user) fetchSeats() }, [user])
   useEffect(() => { if (user) { fetchBookings(); fetchAllDay() } }, [date, startTime, endTime, user])
+
+  // Refetch rooms when user returns to this tab (e.g. after renaming in admin)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && user) {
+        supabase.from('room').select('id, name').then(({ data }: { data: { id: number; name: string }[] | null }) => {
+          if (data) {
+            const map: Record<number, string> = {}
+            data.forEach((r: { id: number; name: string }) => { map[r.id] = r.name })
+            setRooms(map)
+          }
+        })
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [user])
 
   async function fetchSeats() {
     setLoading(true)
@@ -167,6 +199,12 @@ export default function SeatLayoutPage() {
   }, [])
 
   const bookedIds = useMemo(() => new Set(bookings.map(b => b.seat_id)), [bookings])
+  // Map room.id → room.name from DB — used to override hardcoded lane titles
+  const roomNames = useMemo<Record<number, string>>(() => {
+    const m: Record<number, string> = {}
+    Object.entries(rooms).forEach(([id, name]) => { m[Number(id)] = name })
+    return m
+  }, [rooms])
   const myIds = useMemo(
     () => new Set(bookings.filter(b => b.user_id === user?.id).map(b => b.seat_id)),
     [bookings, user]
@@ -223,6 +261,7 @@ export default function SeatLayoutPage() {
     <LaneCard
       key={lane.id}
       lane={lane}
+      roomNames={roomNames}
       dbSeatsForLane={seatsByLane[lane.id] || []}
       bookedIds={bookedIds}
       myIds={myIds}
@@ -270,12 +309,15 @@ export default function SeatLayoutPage() {
             </span>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 5, background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 8, padding: '5px 10px' }}>
-              <Calendar size={12} color="#3b82f6" />
+            <div
+              onClick={() => { const el = document.querySelector<HTMLInputElement>('.date-picker-input'); el?.showPicker?.() }}
+              style={{ display: 'flex', alignItems: 'center', background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 8, padding: '5px 10px', cursor: 'pointer' }}
+            >
               <input
                 type="date"
                 value={date}
                 onChange={e => setDate(e.target.value)}
+                className="date-picker-input"
                 style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-700)', background: 'transparent', border: 'none', outline: 'none', cursor: 'pointer', colorScheme: 'light dark' }}
               />
             </div>
@@ -300,7 +342,7 @@ export default function SeatLayoutPage() {
           </div>
         </div>
 
-        <SectionPills lanes={LANES} onClick={handlePillClick} highlightedId={highlightedLaneId} seatsByLane={seatsByLane} bookedIds={bookedIds} />
+        <SectionPills lanes={LANES} onClick={handlePillClick} highlightedId={highlightedLaneId} seatsByLane={seatsByLane} bookedIds={bookedIds} roomNames={roomNames} />
       </div>
 
       {/* Body */}
@@ -351,6 +393,8 @@ export default function SeatLayoutPage() {
             windowBooked={bookedIds.has(seatTip.seat.id)}
             isMine={myIds.has(seatTip.seat.id)}
             allDayBookings={allDayBookings}
+            isAdmin={profile?.role === 'admin'}
+            roomNames={roomNames}
           />
         </PortalTooltip>
       )}
@@ -384,13 +428,14 @@ export default function SeatLayoutPage() {
 
 /* ───────── Section Pills ───────── */
 function SectionPills({
-  lanes, onClick, highlightedId, seatsByLane, bookedIds,
+  lanes, onClick, highlightedId, seatsByLane, bookedIds, roomNames,
 }: {
   lanes: LaneSpec[]
   onClick: (laneId: string) => void
   highlightedId: string | null
   seatsByLane: Record<string, Seat[]>
   bookedIds: Set<string>
+  roomNames: Record<number, string>
 }) {
   const { theme: pillTheme } = useTheme()
   return (
@@ -483,7 +528,7 @@ function SectionHeader({ title }: { title: string }) {
 /* ───────── Lane card ───────── */
 function LaneCard({
   lane, dbSeatsForLane, bookedIds, myIds, loading, compact = false, highlighted = false, cardRef,
-  onSeatHover, onSeatLeave,
+  onSeatHover, onSeatLeave, roomNames,
 }: {
   lane: LaneSpec
   dbSeatsForLane: Seat[]
@@ -495,6 +540,7 @@ function LaneCard({
   cardRef?: (el: HTMLDivElement | null) => void
   onSeatHover: (seat: Seat, x: number, y: number) => void
   onSeatLeave: () => void
+  roomNames: Record<number, string>
 }) {
   const CELL = compact ? 18 : 22
   const HEADER_H = compact ? 14 : 18
@@ -543,8 +589,8 @@ function LaneCard({
             {lane.iconIsSvg ? null : lane.icon}
           </div>
           <div>
-            <div style={{ fontSize: compact ? 14 : 15, fontWeight: 800, color: 'var(--ink-900)', lineHeight: 1.1 }}>{lane.title}</div>
-            {/*<div style={{ fontSize: compact ? 10.5 : 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>*/}
+            <div style={{ fontSize: compact ? 14 : 15, fontWeight: 800, color: 'var(--ink-900)', lineHeight: 1.1 }}>{getLaneName(lane, roomNames)}</div>
+            <div style={{ fontSize: compact ? 10.5 : 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>

@@ -471,3 +471,12 @@ export function buildLaneCells(lane: LaneSpec): { cells: LaneCell[]; maxRows: nu
 export function isWellnessLane(laneId: string): boolean {
   return laneId === 'wellness'
 }
+
+/**
+ * Get the display name for a lane, preferring the DB room name over the hardcoded title.
+ * Pass the roomNames map built from: { [room.id]: room.name }
+ */
+export function getLaneName(lane: LaneSpec, roomNames: Record<number, string>): string {
+  if (lane.roomId != null && roomNames[lane.roomId]) return roomNames[lane.roomId]
+  return lane.title
+}

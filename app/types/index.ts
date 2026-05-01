@@ -1,8 +1,39 @@
 export type OsType = 'mac' | 'windows' | 'other'
 export type BookingStatus = 'active' | 'cancelled'
-export type UserRole = 'admin' | 'user'
+// Widened to match DB — new values added via migration
+export type UserRole = 'admin' | 'user' | 'team_lead' | 'manager' | string
 
-/* ─── Room (from DB table `rooms`) ─── */
+export interface TeamMember {
+  id: string
+  owner_id: string
+  emp_id: string
+  emp_name: string
+  created_at: string
+}
+
+export interface Department {
+  id: number
+  name: string
+  created_at: string
+}
+
+export interface RolePermission {
+  role: string
+  permission: string
+  allowed: boolean
+}
+
+export const PERMISSIONS = [
+  { key: 'view_floor_map',   label: 'View Floor Map'    },
+  { key: 'book_seats',       label: 'Book Seats'        },
+  { key: 'view_my_bookings', label: 'View My Bookings'  },
+  { key: 'view_analytics',   label: 'View Analytics'    },
+  { key: 'view_admin',       label: 'Access Admin Panel'},
+  { key: 'rename_rooms',     label: 'Rename Zones/Rooms'},
+] as const
+export type PermissionKey = typeof PERMISSIONS[number]['key']
+
+/* ─── Room ─── */
 export interface Room {
   id: number
   created_at: string
@@ -11,32 +42,31 @@ export interface Room {
   status: boolean
 }
 
-/* ─── Seat (from DB table `seats`, now includes room_id) ─── */
+/* ─── Seat ─── */
 export interface Seat {
   id: string
   seat_number: string
-  floor: string | null
-  section: string | null      // legacy slug, e.g. 'server-room-lane'
   os_type: OsType
   has_machine: boolean
   is_active: boolean
   notes: string | null
   machine_number: number | null
   created_at: string
-  room_id: number | null      // FK → rooms.id
-  room?: Room                 // populated via join
+  is_locked: boolean
+  room_id: number | null
+  room?: Room
 }
 
-
-/* ─── Shift (from DB table `shift`) ─── */
+/* ─── Shift ─── */
 export interface Shift {
   id: number
   name: string
-  start_time: string   // HH:MM:SS
-  end_time: string     // HH:MM:SS
+  start_time: string
+  end_time: string
   created_at: string
 }
 
+/* ─── Booking ─── */
 export interface Booking {
   id: string
   user_id: string
@@ -50,13 +80,17 @@ export interface Booking {
   notes: string | null
   created_at: string
   shift_id: number | null
+  booked_for: string | null       // name of person sitting at the seat
+  department_id: number | null    // FK → department.id
   seat?: Seat
   user?: UserProfile
   shift?: Shift
+  department?: Department
   is_overnight?: boolean
   end_date?: string
 }
 
+/* ─── User ─── */
 export interface UserProfile {
   id: string
   name: string | null
@@ -65,12 +99,7 @@ export interface UserProfile {
   created_at: string
 }
 
-/*
- * FLOOR_SECTIONS — static metadata for UI rendering (colors, emoji, shortLabels).
- * The `label` here is a FALLBACK; the authoritative room name comes from DB `rooms.name`.
- * The `id` (section slug) matches seats.section in the DB.
- * The `roomId` links to rooms.id.
- */
+/* ─── Floor Sections metadata ─── */
 export const FLOOR_SECTIONS = [
   { id: 'server-room-lane',   roomId: 1,  label: 'Server Room Lane',              shortLabel: 'Server Lane',  description: '144 workstations',            color: '#EDE7F6', accent: '#7B1FA2', capacity: 144 },
   { id: 'town-hall-lane',     roomId: 2,  label: 'Town Hall Lane',                shortLabel: 'TH Lane',      description: '140 workstations',            color: '#E3F2FD', accent: '#1565C0', capacity: 140 },
@@ -96,44 +125,30 @@ export const FLOOR_SECTIONS = [
 
 export type SectionId = typeof FLOOR_SECTIONS[number]['id']
 
-/**
- * Look up UI metadata for a section/room.
- * Tries room_id first, then falls back to section slug.
- */
 export function getSectionMeta(seat: Seat): typeof FLOOR_SECTIONS[number] | undefined {
-  if (seat.room_id != null) {
-    return FLOOR_SECTIONS.find(s => s.roomId === seat.room_id)
-  }
-  return FLOOR_SECTIONS.find(s => s.id === seat.section)
+  if (seat.room_id != null) return FLOOR_SECTIONS.find(s => s.roomId === seat.room_id)
+  return undefined
 }
 
-/**
- * Get the display name for a room.
- * Priority: seat.room.name (DB) → FLOOR_SECTIONS label → section slug
- */
 export function getRoomName(seat: Seat): string {
   if (seat.room?.name) return seat.room.name
   const meta = getSectionMeta(seat)
   if (meta) return meta.label
-  return seat.section ?? 'Unknown'
+  return 'Unknown'
 }
 
-
-/** Build a lookup map from room_id → Room. Use with rooms fetched from DB. */
 export type RoomMap = Record<number, Room>
-
 export function buildRoomMap(rooms: Room[]): RoomMap {
   const map: RoomMap = {}
   rooms.forEach(r => { map[r.id] = r })
   return map
 }
 
-/** Get room name from a seat using a room map. Falls back to FLOOR_SECTIONS then section slug. */
 export function roomNameFromMap(seat: Seat, roomMap: RoomMap): string {
   if (seat.room_id != null && roomMap[seat.room_id]) return roomMap[seat.room_id].name
   const meta = getSectionMeta(seat)
   if (meta) return meta.label
-  return seat.section ?? 'Unknown'
+  return 'Unknown'
 }
 
 export const OS_META = {
@@ -169,19 +184,6 @@ export function getDefaultEndTime(start: string): string {
   return `${String(eh).padStart(2,'0')}:${em}`
 }
 
-export function getValidStartSlots(selectedDate: string): string[] {
-  const today = new Date().toLocaleDateString('en-CA')
-  // Future date: all 30-min slots available (full 24h)
-  if (selectedDate > today) return ALL_TIME_SLOTS
-  // Today: only slots at least 30 min from now (no 6AM floor)
-  if (selectedDate === today) {
-    const now = new Date()
-    const cutoff = now.getHours() * 60 + now.getMinutes() + 30
-    return ALL_TIME_SLOTS.filter(t => {
-      const [h, m] = t.split(':').map(Number)
-      return h * 60 + m >= cutoff
-    })
-  }
-  // Past date: nothing
-  return []
+export function getValidStartSlots(_selectedDate: string): string[] {
+  return ALL_TIME_SLOTS
 }

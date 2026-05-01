@@ -12,10 +12,10 @@ import { supabase } from '../lib/supabase'
 import ShiftPicker from '../components/ShiftPicker'
 import { useAuth } from '../components/AuthProvider'
 import {
-  FLOOR_SECTIONS, OS_META, getValidStartSlots, buildRoomMap, roomNameFromMap,
+  OS_META, getValidStartSlots, buildRoomMap,
 } from '../types'
-import type { Seat, Booking, OsType, Room, RoomMap } from '../types'
-import { LANES, buildLaneCells, isWellnessLane, type LaneSpec } from '../lib/seat-grid'
+import type { Seat, Booking, OsType, Room, RoomMap, Department, TeamMember } from '../types'
+import { LANES, buildLaneCells, isWellnessLane, getLaneName, type LaneSpec } from '../lib/seat-grid'
 import { useTheme } from '../components/ThemeProvider'
 
 /* ─── helpers ─── */
@@ -48,7 +48,7 @@ type SeatState = 'available' | 'booked' | 'selected' | 'mine' | 'inactive' | 'no
 
 function LaneBookingCard({
   lane, dbSeats, bookedIds, myIds, selectedIds, onToggle, bookings,
-  filterOs, highlighted, cardRef,
+  filterOs, highlighted, cardRef, roomNames,
 }: {
   lane: LaneSpec
   dbSeats: Seat[]
@@ -60,6 +60,7 @@ function LaneBookingCard({
   filterOs: string
   highlighted: boolean
   cardRef: (el: HTMLDivElement | null) => void
+  roomNames: Record<number, string>
 }) {
   const { theme } = useTheme()
   const cardBg = theme === 'dark' ? lane.darkBgColor : lane.bgColor
@@ -132,7 +133,7 @@ function LaneBookingCard({
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)' }}>{lane.title}</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)' }}>{getLaneName(lane, roomNames)}</span>
             {sel > 0 && (
               <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 99, background: lane.accentColor, color: '#fff' }}>
                 {sel} selected
@@ -245,7 +246,7 @@ function SeatCell({
   const palette: Record<SeatState, { bg: string; border: string; color: string }> = {
     available: { bg: '#16a34a', border: '#15803d', color: '#fff' },
     booked:    { bg: '#fef2f2', border: '#fca5a5', color: '#991b1b' },
-    selected:  { bg: '#1e3a5f', border: '#3b82f6', color: '#fff' },
+    selected:  { bg: '#3b82f6', border: '#1d4ed8', color: '#fff' },
     mine:      { bg: '#7c3aed', border: '#5b21b6', color: '#fff' },
     inactive:  { bg: '#f8fafc', border: '#e2e8f0', color: 'var(--ink-300)' },
     'no-seat': { bg: 'transparent', border: 'transparent', color: 'transparent' },
@@ -297,13 +298,14 @@ function SeatCell({
 
 /* ─── Section pills ─── */
 function SectionPills({
-  lanes, onClick, highlightedId, seatsByLane, bookedIds,
+  lanes, onClick, highlightedId, seatsByLane, bookedIds, roomNames,
 }: {
   lanes: LaneSpec[]
   onClick: (laneId: string) => void
   highlightedId: string | null
   seatsByLane: Record<string, Seat[]>
   bookedIds: Set<string>
+  roomNames: Record<number, string>
 }) {
   const { theme: pillTheme } = useTheme()
   return (
@@ -345,7 +347,7 @@ function SectionPills({
             ) : (
               <span>{lane.icon}</span>
             )}
-            <span>{lane.title}</span>
+            <span>{getLaneName(lane, roomNames)}</span>
             {ss.length > 0 && (
               <span style={{ fontSize: 10, fontWeight: 700, color: avail === 0 ? '#ef4444' : '#15803d' }}>
                 ({avail})
@@ -359,10 +361,10 @@ function SectionPills({
 }
 
 /* ─── Confirm Modal (existing) ─── */
-function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endTime, isOvernight, endDate, onConfirm, loading, error, roomMap }: {
+function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endTime, isOvernight, endDate, onConfirm, loading, error, roomMap, roomNames }: {
   open: boolean; onClose: () => void; seats: Seat[]; selectedIds: Set<string>
   date: string; startTime: string; endTime: string; isOvernight: boolean; endDate: string
-  onConfirm: () => void; loading: boolean; error: string; roomMap: import('../types').RoomMap
+  onConfirm: () => void; loading: boolean; error: string; roomMap: import('../types').RoomMap; roomNames: Record<number, string>
 }) {
   const { theme } = useTheme()
   if (!open) return null
@@ -403,7 +405,7 @@ function ConfirmModal({ open, onClose, seats, selectedIds, date, startTime, endT
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)', fontFamily: 'monospace' }}>{seat.seat_number}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lane?.title ?? seat.section}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>{lane ? getLaneName(lane, roomNames) : 'Unknown'}</div>
                   </div>
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>{OS_META[seat.os_type].label}</span>
                 </div>
@@ -467,6 +469,263 @@ function WellnessConfirmModal({ open, onClose, onConfirm, count }: {
   )
 }
 
+/* ─── Team Member Manager Modal — self-fetching, always fresh ─── */
+function TeamMemberManager({ userId, onClose }: {
+  userId: string
+  onClose: () => void
+}) {
+  const [members, setMembers] = useState<TeamMember[]>([])
+  const [loading, setLoading] = useState(true)
+  const [empId, setEmpId] = useState('')
+  const [empName, setEmpName] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const [editId, setEditId] = useState<string | null>(null)
+  const [editEmpId, setEditEmpId] = useState('')
+  const [editEmpName, setEditEmpName] = useState('')
+  const [search, setSearch] = useState('')
+
+  async function fetchMembers() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('team_members')
+      .select('*')
+      .eq('owner_id', userId)
+      .order('emp_name')
+    if (data) setMembers(data as TeamMember[])
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchMembers() }, [])
+
+  function toProperCase(s: string) {
+    return s.trim().replace(/\w\S*/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+  }
+
+  async function handleAdd() {
+    const cleanId = empId.trim().toUpperCase()
+    const cleanName = toProperCase(empName)
+    if (!cleanId) { setErr('EMP ID is required'); return }
+    if (!cleanName) { setErr('Employee name is required'); return }
+    setSaving(true); setErr('')
+    const { error } = await supabase.from('team_members').insert({ owner_id: userId, emp_id: cleanId, emp_name: cleanName })
+    if (error) {
+      setErr(error.message.includes('unique') ? `${cleanName} [${cleanId}] already exists in your list.` : error.message)
+    } else {
+      setEmpId(''); setEmpName('')
+      await fetchMembers()
+    }
+    setSaving(false)
+  }
+
+  async function handleDelete(id: string) {
+    await supabase.from('team_members').delete().eq('id', id).eq('owner_id', userId)
+    setMembers(prev => prev.filter(m => m.id !== id))
+  }
+
+  async function handleEditSave(id: string) {
+    const cleanId = editEmpId.trim().toUpperCase()
+    const cleanName = toProperCase(editEmpName)
+    if (!cleanId || !cleanName) { setErr('Both fields required'); return }
+    setSaving(true); setErr('')
+    const { error } = await supabase.from('team_members').update({ emp_id: cleanId, emp_name: cleanName }).eq('id', id).eq('owner_id', userId)
+    if (error) {
+      setErr(error.message)
+    } else {
+      setMembers(prev => prev.map(m => m.id === id ? { ...m, emp_id: cleanId, emp_name: cleanName } : m))
+      setEditId(null)
+    }
+    setSaving(false)
+  }
+
+  const filtered = members
+    .filter(m => {
+      if (!search.trim()) return true
+      const q = search.toLowerCase()
+      return m.emp_name.toLowerCase().includes(q) || m.emp_id.toLowerCase().includes(q)
+    })
+    .sort((a, b) => a.emp_name.localeCompare(b.emp_name))
+
+  const inp = {
+    padding: '8px 11px', borderRadius: 8, border: '1px solid var(--card-border)',
+    fontSize: 13, fontFamily: 'inherit', background: 'var(--muted-bg)',
+    color: 'var(--ink-900)', outline: 'none', width: '100%',
+    boxSizing: 'border-box' as const,
+  }
+
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: 'var(--card-bg)', borderRadius: 18, width: '100%', maxWidth: 560, maxHeight: '88vh', display: 'flex', flexDirection: 'column', boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }}
+      >
+        {/* Header */}
+        <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink-900)', marginBottom: 3 }}>👥 My Team Members</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              {members.length} member{members.length !== 1 ? 's' : ''} saved · Private to your account
+            </div>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--ink-300)', lineHeight: 1, padding: 4 }}>×</button>
+        </div>
+
+        {/* Add new member */}
+        <div style={{ padding: '16px 22px', borderBottom: '1px solid var(--card-border)', background: 'var(--muted-bg)', flexShrink: 0 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-700)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Add New Member</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr auto', gap: 8 }}>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>EMP ID</label>
+              <input
+                placeholder="E.g. E1234"
+                value={empId}
+                onChange={e => { setEmpId(e.target.value); setErr('') }}
+                onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                style={inp}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Full Name</label>
+              <input
+                placeholder="E.g. John Smith"
+                value={empName}
+                onChange={e => { setEmpName(e.target.value); setErr('') }}
+                onKeyDown={e => e.key === 'Enter' && handleAdd()}
+                style={inp}
+              />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'flex-end' }}>
+              <button
+                onClick={handleAdd}
+                disabled={saving || !empId.trim() || !empName.trim()}
+                style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: (!empId.trim() || !empName.trim()) ? '#94a3b8' : '#1e3a5f', color: '#fff', cursor: (!empId.trim() || !empName.trim()) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap', height: 38 }}
+              >
+                {saving ? '…' : '+ Add'}
+              </button>
+            </div>
+          </div>
+          {err && (
+            <div style={{ marginTop: 8, fontSize: 12, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 7, padding: '6px 10px' }}>
+              {err}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: 'var(--ink-300)', marginTop: 7 }}>
+            Name → Proper Case automatically. ID → UPPERCASE. Press Enter to add.
+          </div>
+        </div>
+
+        {/* Search */}
+        {members.length > 5 && (
+          <div style={{ padding: '10px 22px', borderBottom: '1px solid var(--card-border)', flexShrink: 0 }}>
+            <input
+              placeholder="Search by name or EMP ID…"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              style={{ ...inp, fontSize: 12, padding: '7px 11px' }}
+            />
+          </div>
+        )}
+
+        {/* List */}
+        <div style={{ overflowY: 'auto', flex: 1 }}>
+          {loading ? (
+            <div style={{ padding: 32, textAlign: 'center', color: 'var(--muted)' }}>Loading…</div>
+          ) : filtered.length === 0 ? (
+            <div style={{ padding: 36, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+              {members.length === 0 ? 'No members yet. Add your first one above.' : 'No results match your search.'}
+            </div>
+          ) : filtered.map((m, i) => (
+            <div
+              key={m.id}
+              style={{ padding: '11px 22px', borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}
+            >
+              {editId === m.id ? (
+                /* Edit row */
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8 }}>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>EMP ID</label>
+                      <input
+                        value={editEmpId}
+                        onChange={e => setEditEmpId(e.target.value)}
+                        style={{ ...inp, fontSize: 12 }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: 11, color: 'var(--muted)', display: 'block', marginBottom: 3 }}>Full Name</label>
+                      <input
+                        value={editEmpName}
+                        onChange={e => setEditEmpName(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleEditSave(m.id)}
+                        style={{ ...inp, fontSize: 12 }}
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                    <button
+                      onClick={() => { setEditId(null); setErr('') }}
+                      style={{ padding: '5px 14px', borderRadius: 7, border: '1px solid var(--card-border)', background: 'var(--muted-bg)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink-700)' }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => handleEditSave(m.id)}
+                      disabled={saving}
+                      style={{ padding: '5px 14px', borderRadius: 7, border: 'none', background: '#15803d', color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', fontWeight: 700 }}
+                    >
+                      {saving ? 'Saving…' : 'Save Changes'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                /* Display row */
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--brand-pale)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 800, color: 'var(--brand)', flexShrink: 0 }}>
+                    {m.emp_name.charAt(0).toUpperCase()}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>{m.emp_name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'monospace', marginTop: 1 }}>EMP ID: {m.emp_id}</div>
+                  </div>
+                  <button
+                    onClick={() => { setEditId(m.id); setEditEmpId(m.emp_id); setEditEmpName(m.emp_name); setErr('') }}
+                    style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink-700)', whiteSpace: 'nowrap' }}
+                  >
+                    ✏️ Edit
+                  </button>
+                  <button
+                    onClick={() => { if (confirm(`Remove ${m.emp_name} from your list?`)) handleDelete(m.id) }}
+                    style={{ padding: '5px 12px', borderRadius: 7, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+                  >
+                    🗑 Remove
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{ padding: '12px 22px', borderTop: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+            {filtered.length} of {members.length} member{members.length !== 1 ? 's' : ''}
+          </div>
+          <button
+            onClick={onClose}
+            style={{ padding: '8px 20px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--muted-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600, color: 'var(--ink-700)' }}
+          >
+            Done
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /* ─── Main ─── */
 function BookInner() {
   const { user } = useAuth()
@@ -483,6 +742,8 @@ function BookInner() {
 
   const [seats, setSeats] = useState<Seat[]>([])
   const [roomMap, setRoomMap] = useState<RoomMap>({})
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([])
   const [bookings, setBookings] = useState<Booking[]>([])
   const [loadingSeats, setLoadingSeats] = useState(true)
   const [loadingBks, setLoadingBks] = useState(false)
@@ -491,6 +752,12 @@ function BookInner() {
   const [error, setError] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [wellnessConfirmOpen, setWellnessConfirmOpen] = useState(false)
+  // Per-seat booked_for: seatId → emp label ("emp_name emp_id" or custom)
+  const [bookedForMap, setBookedForMap] = useState<Record<string, string>>({})
+  // Single department for entire booking
+  const [departmentId, setDepartmentId] = useState<number | null>(null)
+  // Team member management
+  const [showTmManager, setShowTmManager] = useState(false)
   const { theme } = useTheme()
   const [filterOs, setFilterOs] = useState('')
   const [selectedShiftId, setSelectedShiftId] = useState<number | null>(null)
@@ -500,7 +767,16 @@ function BookInner() {
 
   useEffect(() => { if (!user) router.push('/auth') }, [user, router])
 
-  useEffect(() => { fetchSeats(); fetchRooms() }, [])
+  useEffect(() => { fetchSeats(); fetchRooms(); fetchDepts(); fetchTeamMembers() }, [])
+
+  // Refetch rooms when user returns to this tab (e.g. after renaming in admin)
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') fetchRooms()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [])
   useEffect(() => { fetchBookings() }, [date, effectiveStart, endTime, isOvernight])
 
   async function fetchSeats() {
@@ -512,6 +788,17 @@ function BookInner() {
   async function fetchRooms() {
     const { data } = await supabase.from('room').select('*')
     if (data) setRoomMap(buildRoomMap(data as Room[]))
+  }
+
+  async function fetchDepts() {
+    const { data } = await supabase.from('department').select('*').order('name')
+    if (data) setDepartments(data as Department[])
+  }
+
+  async function fetchTeamMembers() {
+    if (!user) return
+    const { data } = await supabase.from('team_members').select('*').eq('owner_id', user.id).order('emp_name')
+    if (data) setTeamMembers(data as TeamMember[])
   }
 
   async function fetchBookings() {
@@ -529,6 +816,11 @@ function BookInner() {
   }
 
   const bookedIds = useMemo(() => new Set(bookings.map(b => b.seat_id)), [bookings])
+  const roomNames = useMemo<Record<number, string>>(() => {
+    const m: Record<number, string> = {}
+    Object.entries(roomMap).forEach(([id, room]) => { m[Number(id)] = room.name })
+    return m
+  }, [roomMap])
   const myIds = useMemo(() => new Set(bookings.filter(b => b.user_id === user?.id).map(b => b.seat_id)), [bookings, user])
 
   const seatsByLane: Record<string, Seat[]> = useMemo(() => {
@@ -563,17 +855,27 @@ function BookInner() {
 
   async function performBooking() {
     if (!user || selectedIds.size === 0) return
-    setSubmitting(true); setError('')
+    // Validate every selected seat has a name
     const sel = seats.filter(s => selectedIds.has(s.id))
-    const inserts = sel.flatMap(seat => isOvernight ? [
-      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:00`, shift_id: selectedShiftId },
-      { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: effectiveEndTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${effectiveEndTime}:00`, shift_id: selectedShiftId },
-    ] : [
-      { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: effectiveEndTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${effectiveEndTime}:00`, shift_id: selectedShiftId },
-    ])
+    const missing = sel.filter(s => !bookedForMap[s.id]?.trim())
+    if (missing.length > 0) {
+      setError(`Please assign a team member to every seat (${missing.length} seat${missing.length > 1 ? 's' : ''} missing).`)
+      return
+    }
+    setSubmitting(true); setError('')
+    const inserts = sel.flatMap(seat => {
+      const bf = bookedForMap[seat.id]?.trim() || ''
+      const base = { booked_for: bf, department_id: departmentId || null }
+      return isOvernight ? [
+        { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:00`, shift_id: selectedShiftId, ...base },
+        { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: effectiveEndTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${effectiveEndTime}:00`, shift_id: selectedShiftId, ...base },
+      ] : [
+        { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: effectiveEndTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${effectiveEndTime}:00`, shift_id: selectedShiftId, ...base },
+      ]
+    })
     const { error: err } = await supabase.from('bookings').insert(inserts)
     if (err) setError(err.message.includes('overlap') ? 'One or more seats conflict with existing bookings.' : err.message)
-    else { setSuccess(true); setConfirmOpen(false); setWellnessConfirmOpen(false); setSelectedIds(new Set()); await fetchBookings() }
+    else { setSuccess(true); setConfirmOpen(false); setWellnessConfirmOpen(false); setSelectedIds(new Set()); setBookedForMap({}); setDepartmentId(null); await fetchBookings() }
     setSubmitting(false)
   }
 
@@ -607,7 +909,13 @@ function BookInner() {
 
   const totalAvail = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
   const dur = fmtDur(minutesBetween(effectiveStart, effectiveEndTime, isOvernight))
-  const canBook = selectedIds.size > 0
+  const selectedSeatList = seats.filter(s => selectedIds.has(s.id))
+  const allSeatsNamed = selectedSeatList.length > 0 && selectedSeatList.every(s => bookedForMap[s.id]?.trim())
+  // Detect duplicate names — same team member assigned to more than one seat
+  const usedNames = selectedSeatList.map(s => bookedForMap[s.id]?.trim()).filter(Boolean)
+  const duplicateNames = usedNames.filter((name, idx) => usedNames.indexOf(name) !== idx)
+  const hasDuplicates = duplicateNames.length > 0
+  const canBook = selectedIds.size > 0 && allSeatsNamed && departmentId !== null && !hasDuplicates
 
   if (success) return (
     <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
@@ -669,7 +977,7 @@ function BookInner() {
         </div>
 
         {/* Section pills */}
-        <SectionPills lanes={LANES} onClick={handlePillClick} highlightedId={highlightedLaneId} seatsByLane={seatsByLane} bookedIds={bookedIds} />
+        <SectionPills lanes={LANES} onClick={handlePillClick} highlightedId={highlightedLaneId} seatsByLane={seatsByLane} bookedIds={bookedIds} roomNames={roomNames} />
       </div>
 
       {/* Body */}
@@ -677,7 +985,7 @@ function BookInner() {
         <div className="book-main-col" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {/* Legend */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '9px 13px', background: 'var(--card-bg)', borderRadius: 9, border: '1px solid var(--card-border)', flexWrap: 'wrap' }}>
-            {[{c:'#16a34a',b:'#15803d',l:'Available'},{c:'#fca5a5',b:'#fca5a5',l:'Booked'},{c:'#1e3a5f',b:'#3b82f6',l:'Selected'},{c:'#7c3aed',b:'#5b21b6',l:'Mine'},{c:'#e2e8f0',b:'#e2e8f0',l:'Locked (Remote)'}].map(lg => (
+            {[{c:'#16a34a',b:'#15803d',l:'Available'},{c:'#fca5a5',b:'#fca5a5',l:'Booked'},{c:'#3b82f6',b:'#1d4ed8',l:'Selected'},{c:'#7c3aed',b:'#5b21b6',l:'Mine'},{c:'#e2e8f0',b:'#e2e8f0',l:'Locked (Remote)'}].map(lg => (
               <div key={lg.l} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: 'var(--ink-700)' }}>
                 <div style={{ width: 12, height: 12, borderRadius: 3, background: lg.c, border: `2px solid ${lg.b}` }} />{lg.l}
               </div>
@@ -691,6 +999,7 @@ function BookInner() {
             <LaneBookingCard
               key={lane.id}
               lane={lane}
+              roomNames={roomNames}
               dbSeats={seatsByLane[lane.id] || []}
               bookedIds={bookedIds}
               myIds={myIds}
@@ -723,22 +1032,69 @@ function BookInner() {
                   {!user && <button onClick={() => router.push('/auth')} style={{ marginTop: 8, padding: '6px 14px', borderRadius: 7, background: '#1e3a5f', color: '#fff', border: 'none', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit' }}>Sign in</button>}
                 </div>
               ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {seats.filter(s => selectedIds.has(s.id)).map(seat => {
                     const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
+                    const val = bookedForMap[seat.id] || ''
+                    const hasName = val.trim().length > 0
+                    // Names assigned to OTHER seats (to detect duplicates for this seat)
+                    const otherNames = seats
+                      .filter(s => selectedIds.has(s.id) && s.id !== seat.id)
+                      .map(s => bookedForMap[s.id]?.trim())
+                      .filter(Boolean)
+                    const isDuplicate = hasName && otherNames.includes(val.trim())
+                    const sorted = [...teamMembers].sort((a, b) => a.emp_name.localeCompare(b.emp_name))
+                    const borderColor = isDuplicate ? '#f59e0b' : hasName ? 'var(--card-border)' : '#fca5a5'
                     return (
-                      <div key={seat.id} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 9px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8 }}>
-                        <div
-                          style={{ width: 26, height: 26, borderRadius: 6, background: lane ? (theme === 'dark' ? lane.darkBgColor : lane.bgColor) : 'var(--muted-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, flexShrink: 0, color: lane?.accentColor ?? '#64748b' }}
-                          {...(lane?.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon.replace('width="18"', 'width="13"').replace('height="18"', 'height="13"') } } : {})}
-                        >
-                          {lane?.iconIsSvg ? null : lane?.icon ?? '💡'}
+                      <div key={seat.id} style={{ background: 'var(--muted-bg)', border: `1.5px solid ${borderColor}`, borderRadius: 10, padding: '9px 10px' }}>
+                        {/* Seat header */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
+                          <div
+                            style={{ width: 24, height: 24, borderRadius: 5, background: lane ? (theme === 'dark' ? lane.darkBgColor : lane.bgColor) : 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0, color: lane?.accentColor ?? 'var(--muted)' }}
+                            {...(lane?.iconIsSvg ? { dangerouslySetInnerHTML: { __html: lane.icon.replace('width="18"', 'width="12"').replace('height="18"', 'height="12"') } } : {})}
+                          >
+                            {lane?.iconIsSvg ? null : lane?.icon ?? '💡'}
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-900)', fontFamily: 'monospace' }}>{seat.seat_number}</div>
+                            <div style={{ fontSize: 10, color: 'var(--muted)' }}>{seat.room_id ? (roomNames[seat.room_id] || roomMap[seat.room_id]?.name) : lane?.title}</div>
+                          </div>
+                          <button onClick={() => { toggleSeat(seat); setBookedForMap(p => { const n = { ...p }; delete n[seat.id]; return n }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-300)', padding: 2 }}><Trash2 size={11} /></button>
                         </div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-900)', fontFamily: 'monospace' }}>{seat.seat_number}</div>
-                          <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{(seat.room_id ? roomMap[seat.room_id]?.name : null) || lane?.title}</div>
+                        {/* Per-seat member dropdown */}
+                        <div>
+                          <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            Seat User <span style={{ color: '#dc2626' }}>*</span>
+                          </label>
+                          {teamMembers.length === 0 ? (
+                            <div style={{ fontSize: 11, color: '#dc2626', padding: '5px 0' }}>
+                              No team members saved.{' '}
+                              <button onClick={() => setShowTmManager(true)} style={{ background: 'none', border: 'none', color: 'var(--brand)', cursor: 'pointer', fontSize: 11, textDecoration: 'underline', fontFamily: 'inherit', padding: 0 }}>Add members ↗</button>
+                            </div>
+                          ) : (
+                            <select
+                              value={val}
+                              onChange={e => setBookedForMap(p => ({ ...p, [seat.id]: e.target.value }))}
+                              style={{ width: '100%', padding: '6px 8px', borderRadius: 7, border: `1.5px solid ${borderColor}`, background: 'var(--card-bg)', color: 'var(--ink-900)', fontSize: 11, fontFamily: 'inherit', outline: 'none', colorScheme: 'light dark' as const }}
+                            >
+                              <option value="">Select member…</option>
+                              {sorted.map(tm => {
+                                const label = `${tm.emp_name} [${tm.emp_id}]`
+                                const alreadyUsed = otherNames.includes(label)
+                                return (
+                                  <option key={tm.id} value={label} disabled={alreadyUsed}>
+                                    {label}{alreadyUsed ? ' (already assigned)' : ''}
+                                  </option>
+                                )
+                              })}
+                            </select>
+                          )}
+                          {isDuplicate && (
+                            <div style={{ fontSize: 10, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 7px', marginTop: 4 }}>
+                              ⚠️ Already assigned to another seat
+                            </div>
+                          )}
                         </div>
-                        <button onClick={() => toggleSeat(seat)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#cbd5e1', padding: 2 }}><Trash2 size={11} /></button>
                       </div>
                     )
                   })}
@@ -753,6 +1109,27 @@ function BookInner() {
                 <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, fontWeight: 700 }}>
                   <span>Seats</span><span>{selectedIds.size}</span>
                 </div>
+
+                {/* Department — mandatory, applies to all seats */}
+                <div>
+                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                    Department <span style={{ color: '#dc2626' }}>*</span>
+                  </label>
+                  <select
+                    value={departmentId ?? ''}
+                    onChange={e => setDepartmentId(e.target.value ? parseInt(e.target.value) : null)}
+                    style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1.5px solid ${departmentId ? 'var(--card-border)' : '#fca5a5'}`, background: 'var(--muted-bg)', color: 'var(--ink-900)', fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const, colorScheme: 'light dark' as const }}
+                  >
+                    <option value="">Select department…</option>
+                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+
+                {/* Manage team members link */}
+                <button onClick={() => setShowTmManager(true)} style={{ fontSize: 11, background: 'none', border: '1px dashed var(--card-border)', borderRadius: 7, padding: '5px 10px', cursor: 'pointer', color: 'var(--muted)', fontFamily: 'inherit', textAlign: 'left' }}>
+                  👥 Manage team members list
+                </button>
+
                 {allSelectedAreWellness && (
                   <div style={{ padding: '6px 9px', background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 7, fontSize: 11, color: '#991b1b', display: 'flex', alignItems: 'center', gap: 5 }}>
                     <Heart size={11} /> Emergency Wellness booking
@@ -762,28 +1139,22 @@ function BookInner() {
                   onClick={handleBookClick}
                   disabled={!canBook}
                   style={{
-                    width: '100%',
-                    padding: '10px',
-                    borderRadius: 9,
-                    border: 'none',
+                    width: '100%', padding: '10px', borderRadius: 9, border: 'none',
                     background: !canBook ? '#94a3b8' : (allSelectedAreWellness ? 'linear-gradient(135deg,#dc2626,#991b1b)' : 'linear-gradient(135deg,#059669,#047857)'),
-                    color: '#fff',
-                    fontSize: 13,
-                    fontWeight: 700,
+                    color: '#fff', fontSize: 13, fontWeight: 700,
                     cursor: !canBook ? 'not-allowed' : 'pointer',
-                    fontFamily: 'inherit',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
+                    fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
                   }}
                 >
                   {allSelectedAreWellness ? <Heart size={14} /> : <Zap size={14} />}
-                  {allSelectedAreWellness
-                    ? `Book Wellness Emergency`
-                    : `Book ${selectedIds.size} Seat${selectedIds.size !== 1 ? 's' : ''}`}
+                  {allSelectedAreWellness ? 'Book Wellness Emergency' : `Book ${selectedIds.size} Seat${selectedIds.size !== 1 ? 's' : ''}`}
                 </button>
-                <button onClick={() => setSelectedIds(new Set())} style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                {!canBook && selectedIds.size > 0 && (
+                  <div style={{ fontSize: 11, color: '#dc2626', textAlign: 'center' }}>
+                    {hasDuplicates ? '⚠️ Each seat must have a different person' : !departmentId ? 'Select a department' : !allSeatsNamed ? 'Assign a member to each seat' : ''}
+                  </div>
+                )}
+                <button onClick={() => { setSelectedIds(new Set()); setBookedForMap({}) }} style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                   <X size={11} /> Clear all
                 </button>
               </div>
@@ -808,7 +1179,7 @@ function BookInner() {
               const pct = ss.length > 0 ? avail / ss.length : 1
               return (
                 <div key={lane.id} style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 7 }}>
-                  <span style={{ fontSize: 10, flex: 1, color: 'var(--ink-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lane.title}</span>
+                  <span style={{ fontSize: 10, flex: 1, color: 'var(--ink-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{getLaneName(lane, roomNames)}</span>
                   <div style={{ width: 50, height: 4, background: 'var(--page-bg)', borderRadius: 99, overflow: 'hidden' }}>
                     <div style={{ width: `${pct * 100}%`, height: '100%', background: pct === 0 ? '#ef4444' : pct < 0.35 ? '#f59e0b' : '#22c55e', borderRadius: 99 }} />
                   </div>
@@ -820,8 +1191,14 @@ function BookInner() {
         </div>
       </div>
 
-      <ConfirmModal open={confirmOpen} onClose={() => setConfirmOpen(false)} seats={seats} selectedIds={selectedIds} date={date} startTime={effectiveStart} endTime={effectiveEndTime} isOvernight={isOvernight} endDate={endDate} onConfirm={performBooking} loading={submitting} error={error} roomMap={roomMap} />
+      <ConfirmModal open={confirmOpen} onClose={() => setConfirmOpen(false)} seats={seats} selectedIds={selectedIds} date={date} startTime={effectiveStart} endTime={effectiveEndTime} isOvernight={isOvernight} endDate={endDate} onConfirm={performBooking} loading={submitting} error={error} roomMap={roomMap} roomNames={roomNames} />
       <WellnessConfirmModal open={wellnessConfirmOpen} onClose={() => setWellnessConfirmOpen(false)} onConfirm={handleWellnessConfirm} count={selectedIds.size} />
+      {showTmManager && (
+        <TeamMemberManager
+          userId={user!.id}
+          onClose={() => { setShowTmManager(false); fetchTeamMembers() }}
+        />
+      )}
 
       <style dangerouslySetInnerHTML={{ __html: `
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }

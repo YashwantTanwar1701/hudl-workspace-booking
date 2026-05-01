@@ -474,7 +474,7 @@ export default function SeatLayoutPage() {
   const seatsByLane: Record<string, Seat[]> = useMemo(() => {
     const result: Record<string, Seat[]> = {}
     LANES.forEach(lane => {
-      result[lane.id] = seats.filter(s => s.section === lane.sectionId)
+      result[lane.id] = seats.filter(s => s.room_id != null && s.room_id === (lane as any).roomId)
     })
     return result
   }, [seats])
