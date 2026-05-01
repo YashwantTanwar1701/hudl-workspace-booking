@@ -2,7 +2,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useAuth } from './AuthProvider'
-import { LayoutGrid, Map, PlusSquare, ClipboardList, BarChart2, Settings, LogOut, User, Users, Sun, Moon } from 'lucide-react'
+import { LayoutGrid, Map, PlusSquare, ClipboardList, BarChart2, Settings, LogOut, User, Users, UploadCloud, Sun, Moon } from 'lucide-react'
 import { useTheme } from './ThemeProvider'
 
 export default function Navbar() {

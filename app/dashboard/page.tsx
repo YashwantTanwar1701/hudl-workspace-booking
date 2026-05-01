@@ -129,12 +129,16 @@ function DayHeatmap({ data }: { data: Record<string, number> }) {
       {DAYS.map(d => {
         const v = data[d] || 0
         const pct = v / max
+        // Background: empty → neutral, low → light blue, high → dark blue
         const bg = pct === 0 ? 'var(--surface-1)' :
           pct < 0.25 ? '#bfdbfe' : pct < 0.5 ? '#60a5fa' : pct < 0.75 ? '#2563eb' : '#1e3a5f'
+        // Text colour: always dark on light cells (#bfdbfe, #60a5fa), always white on dark cells
+        // Use explicit hex so it's correct in both light and dark theme
+        const textColor = pct === 0 ? '#94a3b8' : pct < 0.5 ? '#1e3a5f' : '#ffffff'
         return (
           <div key={d} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <div style={{ width: '100%', height: 44, borderRadius: 8, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: pct > 0.4 ? '#fff' : 'var(--ink-700)', transition: 'background 0.3s' }}>{v}</div>
-            <div style={{ fontSize: 10, color: 'var(--muted)' }}>{d}</div>
+            <div style={{ width: '100%', height: 48, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: textColor, transition: 'background 0.3s', letterSpacing: '-0.02em' }}>{v}</div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{d}</div>
           </div>
         )
       })}

@@ -943,6 +943,9 @@ function BookInner() {
               </h1>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button onClick={() => router.push('/bulk-booking')} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 13px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, color: 'var(--ink-700)', fontFamily: 'inherit', fontWeight: 600 }}>
+                📋 Bulk Import
+              </button>
               <span style={{ fontSize: 12, padding: '5px 10px', borderRadius: 99, background: '#f0fdf4', color: '#15803d', fontWeight: 600, border: '1px solid #bbf7d0' }}>{loadingBks ? '…' : `${totalAvail} available`}</span>
               <button onClick={fetchBookings} style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '6px 11px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, color: 'var(--ink-700)', fontFamily: 'inherit' }}><RefreshCw size={11} /> Refresh</button>
             </div>

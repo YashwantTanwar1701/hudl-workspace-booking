@@ -7,21 +7,17 @@ type Theme = 'light' | 'dark'
 const ThemeCtx = createContext<{
   theme: Theme
   toggle: () => void
-}>({ theme: 'light', toggle: () => {} })
+}>({ theme: 'dark', toggle: () => {} })
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setTheme] = useState<Theme>('light')
+  const [theme, setTheme] = useState<Theme>('dark')
 
-  // On mount, read from localStorage or system preference
   useEffect(() => {
     const stored = localStorage.getItem('theme') as Theme | null
-    if (stored === 'dark' || stored === 'light') {
-      setTheme(stored)
-      document.documentElement.setAttribute('data-theme', stored)
-    } else if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      setTheme('dark')
-      document.documentElement.setAttribute('data-theme', 'dark')
-    }
+    // Default is always dark — only switch to light if explicitly stored
+    const resolved: Theme = stored === 'light' ? 'light' : 'dark'
+    setTheme(resolved)
+    document.documentElement.setAttribute('data-theme', resolved)
   }, [])
 
   const toggle = () => {
