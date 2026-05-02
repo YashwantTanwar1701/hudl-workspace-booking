@@ -12,6 +12,46 @@ import { getCurrentTimeSlot, getDefaultEndTime, OS_META } from '../types'
 import type { Seat, Booking, OsType } from '../types'
 import { LANES, BIG_GROUPS, buildLaneCells, getLaneName, type LaneSpec, type LaneGroup } from '../lib/seat-grid'
 
+// ─── Time overlap helper ───────────────────────────────────────────────────
+// Converts "HH:MM:SS" or "HH:MM" to minutes since midnight
+function toMins(t: string): number {
+  const parts = t.split(':')
+  return parseInt(parts[0]) * 60 + parseInt(parts[1] || '0')
+}
+
+// Does a booking overlap a selected time window?
+// Handles overnight bookings (is_overnight=true) and overnight windows (endTime < startTime).
+function bookingOverlapsWindow(b: Booking, viewDate: string, winStart: string, winEnd: string): boolean {
+  const winStartM = toMins(winStart)
+  const winEndM   = toMins(winEnd)
+  const bStartM   = toMins(b.start_time)
+  const bEndM     = toMins(b.end_time)
+
+  const winIsOvernight = winEndM < winStartM    // e.g. 23:00→07:00
+  const bIsOvernight   = b.is_overnight         // from DB column
+
+  // Normalise to intervals on a 0-1440 (midnight) axis by expanding overnight ranges
+  // Window interval (absolute minutes):
+  const wS = winStartM
+  const wE = winIsOvernight ? winEndM + 1440 : winEndM
+
+  // Booking starts on booking_date. If booking_date === viewDate, it starts at bStartM.
+  // If booking is overnight and end_date === viewDate (started yesterday), 
+  // treat it as starting at 0 (already handled by fetching end_date=viewDate rows).
+  let bS: number, bE: number
+  if (b.booking_date === viewDate) {
+    bS = bStartM
+    bE = bIsOvernight ? bEndM + 1440 : bEndM
+  } else {
+    // This booking started on a previous day (overnight, end_date = viewDate)
+    bS = 0          // treat as starting at 00:00 on viewDate
+    bE = bEndM      // ends at end_time on viewDate
+  }
+
+  // Standard interval overlap: A overlaps B iff A.start < B.end AND A.end > B.start
+  return bS < wE && bE > wS
+}
+
 /* ─── Portal-based tooltip (renders at document.body so it isn't clipped by overflow:hidden cards) ─── */
 function PortalTooltip({ x, y, children }: { x: number; y: number; children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)
@@ -137,35 +177,57 @@ export default function SeatLayoutPage() {
     if (!authLoading && !user) router.replace('/')
   }, [user, authLoading, router])
 
-  // Fetch seats and bookings together — prevents flicker from two separate renders
+  // Fetch seats and rooms once when user loads
+  // Bookings are fetched by the date/time useEffect below (which also runs on mount)
+  // Using a seatsReady flag so the grid stays in loading state until bookings also arrive
   useEffect(() => {
     if (!user) return
-    Promise.all([fetchSeats(), fetchBookings(), fetchAllDay()])
+    setLoading(true)
+    Promise.all([
+      supabase.from('seats').select('*').order('seat_number'),
+      supabase.from('room').select('id, name'),
+    ]).then(([seatsRes, roomsRes]) => {
+      if (seatsRes.data) setSeats(seatsRes.data as Seat[])
+      if (roomsRes.data) {
+        const map: Record<number, string> = {}
+        roomsRes.data.forEach((r: { id: number; name: string }) => { map[r.id] = r.name })
+        setRooms(map)
+      }
+      // Don't set loading=false here — let the booking fetch do it
+    })
   }, [user])
 
-  // Refetch bookings when date/time changes — inline to avoid stale closure
+  // Single source of truth for bookings — runs on mount AND whenever time window changes
+  // Uses booking_date/end_date for simple querying + time comparison in JS for window overlap
   useEffect(() => {
     if (!user) return
-    const windowStart = `${date}T${startTime}:00`
-    const nextDay = new Date(date + 'T00:00:00')
-    nextDay.setDate(nextDay.getDate() + 1)
-    const nextDayStr = nextDay.toISOString().slice(0, 10)
-    const effectiveWindowEnd = endTime < startTime
-      ? `${nextDayStr}T${endTime}:00`
-      : `${date}T${endTime}:00`
-    const dayStart = `${date}T00:00:00`
-    const dayEnd   = `${date}T23:59:59`
+
+    // For the selected window, a booking overlaps if:
+    //   its date range covers today AND its time range overlaps our window
+    // We fetch all bookings whose date range includes the selected date,
+    // then filter in JS for time overlap — this avoids all timestamp comparison issues.
+    const isNightWindow = endTime < startTime  // e.g. 23:00 → 07:00
 
     Promise.all([
-      supabase.from('bookings').select('*').eq('status', 'active')
-        .lt('start_ts', effectiveWindowEnd)
-        .gt('end_ts', windowStart),
-      supabase.from('bookings').select('*').eq('status', 'active')
-        .lt('start_ts', dayEnd)
-        .gt('end_ts', dayStart),
-    ]).then(([bkRes, allDayRes]) => {
-      if (bkRes.data)     setBookings(bkRes.data as Booking[])
-      if (allDayRes.data) setAllDayBookings(allDayRes.data as Booking[])
+      // Bookings starting on this date
+      supabase.from('bookings').select('*').eq('status', 'active').eq('booking_date', date),
+      // Overnight bookings that STARTED yesterday and end today
+      // (their end_date = today)
+      supabase.from('bookings').select('*').eq('status', 'active').eq('end_date', date).eq('is_overnight', true),
+    ]).then(([startRes, endRes]) => {
+      const startDay = (startRes.data ?? []) as Booking[]
+      const endDay   = (endRes.data ?? []) as Booking[]
+
+      // Merge + deduplicate
+      const seen = new Set<string>()
+      const all = [...startDay, ...endDay].filter(b => { if (seen.has(b.id)) return false; seen.add(b.id); return true })
+
+      // Filter to only bookings that overlap our selected time window
+      const overlapping = all.filter(b => bookingOverlapsWindow(b, date, startTime, endTime))
+
+      setBookings(overlapping)
+      setAllDayBookings(all)
+      setLoading(false)
     })
   }, [date, startTime, endTime, user])
 
@@ -195,17 +257,9 @@ export default function SeatLayoutPage() {
 
   async function fetchSeats() {
     setLoading(true)
-    const [seatsRes, roomsRes, bkRes, allDayRes] = await Promise.all([
+    const [seatsRes, roomsRes] = await Promise.all([
       supabase.from('seats').select('*').order('seat_number'),
       supabase.from('room').select('id, name'),
-      // Fetch bookings at the same time so grid renders once with correct colours
-      supabase.from('bookings').select('*').eq('status', 'active')
-        .lt('start_ts', endTime < startTime
-          ? `${new Date(new Date(date+'T00:00:00').setDate(new Date(date+'T00:00:00').getDate()+1)).toISOString().slice(0,10)}T${endTime}:00`
-          : `${date}T${endTime}:00`)
-        .gt('end_ts', `${date}T${startTime}:00`),
-      supabase.from('bookings').select('*').eq('status', 'active')
-        .lt('start_ts', `${date}T23:59:59`).gt('end_ts', `${date}T00:00:00`),
     ])
     if (seatsRes.data) setSeats(seatsRes.data as Seat[])
     if (roomsRes.data) {
@@ -213,29 +267,21 @@ export default function SeatLayoutPage() {
       roomsRes.data.forEach((r: { id: number; name: string }) => { map[r.id] = r.name })
       setRooms(map)
     }
-    if (bkRes.data) setBookings(bkRes.data as Booking[])
-    if (allDayRes.data) setAllDayBookings(allDayRes.data as Booking[])
     setLoading(false)
   }
 
   async function fetchBookings() {
     setRefreshing(true)
-    const windowStart = `${date}T${startTime}:00`
-    const windowEnd   = `${date}T${endTime}:00`
-
-    // For overnight windows (e.g. 23:00–07:00), windowEnd would be next day
-    const effectiveWindowEnd = endTime < startTime
-      ? `${new Date(new Date(date + 'T00:00:00').setDate(new Date(date + 'T00:00:00').getDate() + 1)).toISOString().slice(0,10)}T${endTime}:00`
-      : windowEnd
-
-    // A booking overlaps [windowStart, effectiveWindowEnd) if:
-    //   start_ts < effectiveWindowEnd  AND  end_ts > windowStart
-    const { data } = await supabase.from('bookings').select('*')
-      .eq('status', 'active')
-      .lt('start_ts', effectiveWindowEnd)
-      .gt('end_ts', windowStart)
-
-    if (data) setBookings(data as Booking[])
+    const [startRes, endRes] = await Promise.all([
+      supabase.from('bookings').select('*').eq('status', 'active').eq('booking_date', date),
+      supabase.from('bookings').select('*').eq('status', 'active').eq('end_date', date).eq('is_overnight', true),
+    ])
+    const seen = new Set<string>()
+    const all = [...(startRes.data ?? []), ...(endRes.data ?? [])] as Booking[]
+    const deduped = all.filter(b => { if (seen.has(b.id)) return false; seen.add(b.id); return true })
+    const overlapping = deduped.filter(b => bookingOverlapsWindow(b, date, startTime, endTime))
+    setBookings(overlapping)
+    setAllDayBookings(deduped)
     setRefreshing(false)
   }
 

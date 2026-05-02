@@ -230,11 +230,10 @@ export default function MyBookingsPage() {
   const merged = mergeOvernightBookings(bookings)
   const now    = new Date()
 
-  // Today: active bookings for today that are NOT overnight pairs extending to tomorrow
-  // (overnight pairs starting today are shown in Upcoming since they run past midnight)
-  const todayBookings     = merged.filter(d => d.primary.booking_date === today && d.primary.status === 'active' && !d.isOvernightPair)
-  // Upcoming: future bookings + today's overnight bookings (they need cancellation option)
-  const upcomingBookings  = merged.filter(d => d.primary.status === 'active' && (d.primary.booking_date > today || (d.primary.booking_date === today && d.isOvernightPair)))
+  // Today: all active bookings starting today (including overnight ones)
+  const todayBookings     = merged.filter(d => d.primary.booking_date === today && d.primary.status === 'active')
+  // Upcoming: active bookings starting AFTER today
+  const upcomingBookings  = merged.filter(d => d.primary.booking_date > today && d.primary.status === 'active')
   // Past: active bookings with past dates (completed)
   const pastBookings      = merged.filter(d => d.primary.booking_date < today  && d.primary.status === 'active')
   const cancelledBookings = merged.filter(d => d.primary.status === 'cancelled')

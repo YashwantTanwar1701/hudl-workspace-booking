@@ -71,23 +71,23 @@ export interface Booking {
   id: string
   user_id: string
   seat_id: string
-  booking_date: string
-  start_time: string
-  end_time: string
-  start_ts: string
-  end_ts: string
+  booking_date: string       // date shift STARTS
+  start_time: string         // e.g. "23:00:00"
+  end_time: string           // e.g. "07:00:00"
+  is_overnight: boolean      // true when shift crosses midnight (set by trigger)
+  end_date: string           // date shift ENDS (booking_date+1 for overnight, set by trigger)
+  start_ts: string           // full timestamp (set by trigger)
+  end_ts: string             // full timestamp (set by trigger)
   status: BookingStatus
   notes: string | null
   created_at: string
   shift_id: number | null
-  booked_for: string | null       // name of person sitting at the seat
-  department_id: number | null    // FK → department.id
+  booked_for: string | null
+  department_id: number | null
   seat?: Seat
   user?: UserProfile
   shift?: Shift
   department?: Department
-  is_overnight?: boolean
-  end_date?: string
 }
 
 /* ─── User ─── */

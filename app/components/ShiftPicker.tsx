@@ -133,8 +133,8 @@ export default function ShiftPicker({
         return
       }
 
-      // 2. Otherwise, auto-select the shift whose time window contains "now"
-      //    (only on initial load, only when looking at today's date)
+      // 2. Auto-select the shift whose window contains the current time
+      //    Only on initial load when viewing today
       const today = new Date().toISOString().split('T')[0]
       if (date === today) {
         const current = sorted.find(s => isShiftCurrentTime(s))
