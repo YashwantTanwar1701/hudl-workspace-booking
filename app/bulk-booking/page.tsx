@@ -271,8 +271,8 @@ export default function BulkBookingPage() {
       const endDate = row.overnight ? addOneDay(row.date) : row.date
 
       const inserts = row.overnight ? [
-        { ...base, booking_date: row.date,    start_time: row.start_time, end_time: '23:59:00', start_ts: `${row.date}T${row.start_time}`,    end_ts: `${row.date}T23:59:00` },
-        { ...base, booking_date: endDate,     start_time: '00:00:00',     end_time: row.end_time, start_ts: `${endDate}T00:00:00`,              end_ts: `${endDate}T${row.end_time}` },
+        // Single row spanning midnight — start_ts on booking date, end_ts on next day
+        { ...base, booking_date: row.date, start_time: row.start_time, end_time: row.end_time, start_ts: `${row.date}T${row.start_time}`, end_ts: `${addOneDay(row.date)}T${row.end_time}` },
       ] : [
         { ...base, booking_date: row.date, start_time: row.start_time, end_time: row.end_time, start_ts: `${row.date}T${row.start_time}`, end_ts: `${row.date}T${row.end_time}` },
       ]

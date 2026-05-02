@@ -738,7 +738,9 @@ function BookInner() {
   const [isOvernight, setIsOvernight] = useState(false)
   const validStarts = getValidStartSlots(date)
   const effectiveStart = validStarts.includes(startTime) ? startTime : (validStarts[0] ?? '09:00')
-  const endDate = isOvernight ? addDays(date, 1) : date
+  // Compute overnight directly from times — don't rely on isOvernight state which may lag
+  const timeCrossesMidnight = endTime !== '' && endTime < effectiveStart && effectiveStart >= '20:00'
+  const endDate = timeCrossesMidnight ? addDays(date, 1) : date
 
   const [seats, setSeats] = useState<Seat[]>([])
   const [roomMap, setRoomMap] = useState<RoomMap>({})
@@ -767,17 +769,35 @@ function BookInner() {
 
   useEffect(() => { if (!user) router.push('/auth') }, [user, router])
 
-  useEffect(() => { fetchSeats(); fetchRooms(); fetchDepts(); fetchTeamMembers() }, [])
-
-  // Refetch rooms when user returns to this tab (e.g. after renaming in admin)
   useEffect(() => {
-    const handleVisibility = () => {
-      if (document.visibilityState === 'visible') fetchRooms()
-    }
-    document.addEventListener('visibilitychange', handleVisibility)
-    return () => document.removeEventListener('visibilitychange', handleVisibility)
+    // Fetch all initial data in parallel — prevents flicker from staged renders
+    Promise.all([fetchSeats(), fetchRooms(), fetchDepts(), fetchTeamMembers(), fetchBookings()])
   }, [])
-  useEffect(() => { fetchBookings() }, [date, effectiveStart, endTime, isOvernight])
+
+  // Refetch bookings when date/time changes — inline to avoid stale closure
+  useEffect(() => {
+    const wStart = `${date}T${effectiveStart}:00`
+    const wEnd = timeCrossesMidnight
+      ? `${endDate}T${endTime}:00`
+      : `${date}T${endTime}:00`
+
+    setLoadingBks(true)
+    supabase.from('bookings').select('*')
+      .eq('status', 'active')
+      .lt('start_ts', wEnd)
+      .gt('end_ts', wStart)
+      .then(({ data }: { data: Booking[] | null }) => {
+        const all = (data ?? []) as Booking[]
+        setBookings(all)
+        const booked = new Set(all.map(b => b.seat_id))
+        setSelectedIds(prev => {
+          const n = new Set(prev)
+          Array.from(prev).forEach(id => { if (booked.has(id)) n.delete(id) })
+          return n
+        })
+        setLoadingBks(false)
+      })
+  }, [date, effectiveStart, endTime, timeCrossesMidnight, endDate])
 
   async function fetchSeats() {
     const { data } = await supabase.from('seats').select('*').order('seat_number')
@@ -803,12 +823,13 @@ function BookInner() {
 
   async function fetchBookings() {
     setLoadingBks(true)
-    const r1 = await supabase.from('bookings').select('*').eq('status', 'active').eq('booking_date', date)
-    const all = [...(r1.data ?? [])] as Booking[]
-    if (isOvernight && endDate !== date) {
-      const r2 = await supabase.from('bookings').select('*').eq('status', 'active').eq('booking_date', endDate)
-      all.push(...(r2.data ?? []) as Booking[])
-    }
+    const wStart = `${date}T${effectiveStart}:00`
+    const wEnd = timeCrossesMidnight ? `${endDate}T${endTime}:00` : `${date}T${endTime}:00`
+    const { data } = await supabase.from('bookings').select('*')
+      .eq('status', 'active')
+      .lt('start_ts', wEnd)
+      .gt('end_ts', wStart)
+    const all = (data ?? []) as Booking[]
     setBookings(all)
     const booked = new Set(all.map(b => b.seat_id))
     setSelectedIds(prev => { const n = new Set(prev); Array.from(prev).forEach(id => { if (booked.has(id)) n.delete(id) }); return n })
@@ -865,13 +886,21 @@ function BookInner() {
     setSubmitting(true); setError('')
     const inserts = sel.flatMap(seat => {
       const bf = bookedForMap[seat.id]?.trim() || ''
-      const base = { booked_for: bf, department_id: departmentId || null }
-      return isOvernight ? [
-        { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: '23:59:00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T23:59:00`, shift_id: selectedShiftId, ...base },
-        { user_id: user.id, seat_id: seat.id, booking_date: endDate, start_time: '00:00:00', end_time: effectiveEndTime + ':00', start_ts: `${endDate}T00:00:00`, end_ts: `${endDate}T${effectiveEndTime}:00`, shift_id: selectedShiftId, ...base },
-      ] : [
-        { user_id: user.id, seat_id: seat.id, booking_date: date, start_time: effectiveStart + ':00', end_time: effectiveEndTime + ':00', start_ts: `${date}T${effectiveStart}:00`, end_ts: `${date}T${effectiveEndTime}:00`, shift_id: selectedShiftId, ...base },
-      ]
+      const base = { booked_for: bf, department_id: departmentId || null, shift_id: selectedShiftId }
+      // Single row for both normal and overnight bookings.
+      // For overnight: start_ts = date T startTime, end_ts = endDate T endTime
+      // The no_overlap constraint uses tsrange(start_ts, end_ts) so this correctly
+      // blocks any conflicting booking across the midnight boundary.
+      return [{
+        user_id: user.id,
+        seat_id: seat.id,
+        booking_date: date,
+        start_time: effectiveStart + ':00',
+        end_time: effectiveEndTime + ':00',
+        start_ts: `${date}T${effectiveStart}:00`,
+        end_ts: `${endDate}T${effectiveEndTime}:00`,
+        ...base,
+      }]
     })
     const { error: err } = await supabase.from('bookings').insert(inserts)
     if (err) setError(err.message.includes('overlap') ? 'One or more seats conflict with existing bookings.' : err.message)

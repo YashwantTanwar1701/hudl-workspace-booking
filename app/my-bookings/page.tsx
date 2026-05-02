@@ -41,17 +41,36 @@ interface DisplayBooking {
 }
 
 function mergeOvernightBookings(bookings: BFull[]): DisplayBooking[] {
+  // New approach: overnight bookings are stored as a SINGLE row where
+  // booking_date = start date, start_time = e.g. 23:00, end_time = e.g. 07:00
+  // and end_ts spans into the next calendar day.
+  // Detect overnight: end_time <= start_time (e.g. 07:00 <= 23:00)
+  // Also handle legacy split rows (23:59 / 00:00) for backward compatibility.
+
   const sorted = [...bookings].sort((a, b) => {
-    if (a.seat_id !== b.seat_id) return a.seat_id.localeCompare(b.seat_id)
-    if (a.booking_date !== b.booking_date) return a.booking_date.localeCompare(b.booking_date)
-    return a.start_time.localeCompare(b.start_time)
+    if (a.booking_date !== b.booking_date) return b.booking_date.localeCompare(a.booking_date)
+    return b.start_time.localeCompare(a.start_time)
   })
   const used = new Set<string>()
   const result: DisplayBooking[] = []
 
   for (const b of sorted) {
     if (used.has(b.id)) continue
-    if (b.end_time.startsWith('23:59') && b.status === 'active') {
+
+    // Single-row overnight: end_time < start_time (crosses midnight)
+    const isSingleOvernight = b.end_time < b.start_time && b.start_time >= '20:00:00'
+
+    if (isSingleOvernight) {
+      const d = new Date(b.booking_date + 'T00:00:00')
+      d.setDate(d.getDate() + 1)
+      const endDate = d.toISOString().slice(0, 10)
+      used.add(b.id)
+      result.push({ primary: b, isOvernightPair: true, displayDate: b.booking_date, displayStart: b.start_time, displayEnd: b.end_time, displayEndDate: endDate })
+      continue
+    }
+
+    // Legacy split first-half (23:59 end) — try to find companion 00:00 row
+    if ((b.end_time.startsWith('23:59')) && b.status === 'active') {
       const d = new Date(b.booking_date + 'T00:00:00')
       d.setDate(d.getDate() + 1)
       const nextDate = d.toISOString().slice(0, 10)
@@ -60,8 +79,7 @@ function mergeOvernightBookings(bookings: BFull[]): DisplayBooking[] {
         c.seat_id === b.seat_id &&
         c.booking_date === nextDate &&
         c.start_time.startsWith('00:00') &&
-        c.status === b.status &&
-        (b.shift_id == null || c.shift_id == null || b.shift_id === c.shift_id)
+        c.status === b.status
       )
       if (companion) {
         used.add(b.id); used.add(companion.id)
@@ -69,17 +87,30 @@ function mergeOvernightBookings(bookings: BFull[]): DisplayBooking[] {
         continue
       }
     }
+
+    // Skip legacy split second-half rows (00:00 start with 23:59 companion already merged)
+    if (b.start_time.startsWith('00:00') && b.status === 'active') {
+      const d = new Date(b.booking_date + 'T00:00:00')
+      d.setDate(d.getDate() - 1)
+      const prevDate = d.toISOString().slice(0, 10)
+      const alreadyMerged = result.some(r =>
+        r.secondary?.id === b.id ||
+        (r.primary.seat_id === b.seat_id && r.displayEndDate === b.booking_date && r.isOvernightPair)
+      )
+      if (alreadyMerged) { used.add(b.id); continue }
+    }
+
     used.add(b.id)
     result.push({ primary: b, isOvernightPair: false, displayDate: b.booking_date, displayStart: b.start_time, displayEnd: b.end_time, displayEndDate: b.booking_date })
   }
-  return result.sort((a, b) => b.displayDate.localeCompare(a.displayDate) || b.displayStart.localeCompare(a.displayStart))
+  return result
 }
 
 function getDur(d: DisplayBooking) {
   const [sh, sm] = d.displayStart.split(':').map(Number)
   const [eh, em] = d.displayEnd.split(':').map(Number)
   let m = (eh * 60 + em) - (sh * 60 + sm)
-  if (d.isOvernightPair || m < 0) m += 1440
+  if (m <= 0) m += 1440  // overnight crosses midnight
   return m >= 60 ? `${Math.floor(m / 60)}h${m % 60 > 0 ? ` ${m % 60}m` : ''}` : `${m}m`
 }
 
@@ -199,8 +230,12 @@ export default function MyBookingsPage() {
   const merged = mergeOvernightBookings(bookings)
   const now    = new Date()
 
-  const todayBookings     = merged.filter(d => d.primary.booking_date === today && d.primary.status === 'active')
-  const upcomingBookings  = merged.filter(d => d.primary.booking_date > today  && d.primary.status === 'active')
+  // Today: active bookings for today that are NOT overnight pairs extending to tomorrow
+  // (overnight pairs starting today are shown in Upcoming since they run past midnight)
+  const todayBookings     = merged.filter(d => d.primary.booking_date === today && d.primary.status === 'active' && !d.isOvernightPair)
+  // Upcoming: future bookings + today's overnight bookings (they need cancellation option)
+  const upcomingBookings  = merged.filter(d => d.primary.status === 'active' && (d.primary.booking_date > today || (d.primary.booking_date === today && d.isOvernightPair)))
+  // Past: active bookings with past dates (completed)
   const pastBookings      = merged.filter(d => d.primary.booking_date < today  && d.primary.status === 'active')
   const cancelledBookings = merged.filter(d => d.primary.status === 'cancelled')
   const allBookings       = merged

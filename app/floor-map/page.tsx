@@ -137,8 +137,37 @@ export default function SeatLayoutPage() {
     if (!authLoading && !user) router.replace('/')
   }, [user, authLoading, router])
 
-  useEffect(() => { if (user) fetchSeats() }, [user])
-  useEffect(() => { if (user) { fetchBookings(); fetchAllDay() } }, [date, startTime, endTime, user])
+  // Fetch seats and bookings together — prevents flicker from two separate renders
+  useEffect(() => {
+    if (!user) return
+    Promise.all([fetchSeats(), fetchBookings(), fetchAllDay()])
+  }, [user])
+
+  // Refetch bookings when date/time changes — inline to avoid stale closure
+  useEffect(() => {
+    if (!user) return
+    const windowStart = `${date}T${startTime}:00`
+    const nextDay = new Date(date + 'T00:00:00')
+    nextDay.setDate(nextDay.getDate() + 1)
+    const nextDayStr = nextDay.toISOString().slice(0, 10)
+    const effectiveWindowEnd = endTime < startTime
+      ? `${nextDayStr}T${endTime}:00`
+      : `${date}T${endTime}:00`
+    const dayStart = `${date}T00:00:00`
+    const dayEnd   = `${date}T23:59:59`
+
+    Promise.all([
+      supabase.from('bookings').select('*').eq('status', 'active')
+        .lt('start_ts', effectiveWindowEnd)
+        .gt('end_ts', windowStart),
+      supabase.from('bookings').select('*').eq('status', 'active')
+        .lt('start_ts', dayEnd)
+        .gt('end_ts', dayStart),
+    ]).then(([bkRes, allDayRes]) => {
+      if (bkRes.data)     setBookings(bkRes.data as Booking[])
+      if (allDayRes.data) setAllDayBookings(allDayRes.data as Booking[])
+    })
+  }, [date, startTime, endTime, user])
 
   // Refetch rooms when user returns to this tab (e.g. after renaming in admin)
   useEffect(() => {
@@ -151,17 +180,32 @@ export default function SeatLayoutPage() {
             setRooms(map)
           }
         })
+        fetchBookings()
+        fetchAllDay()
       }
     }
+    const handleFocus = () => { if (user) { fetchBookings(); fetchAllDay() } }
     document.addEventListener('visibilitychange', handleVisibility)
-    return () => document.removeEventListener('visibilitychange', handleVisibility)
-  }, [user])
+    window.addEventListener('focus', handleFocus)
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility)
+      window.removeEventListener('focus', handleFocus)
+    }
+  }, [user, date, startTime, endTime])
 
   async function fetchSeats() {
     setLoading(true)
-    const [seatsRes, roomsRes] = await Promise.all([
+    const [seatsRes, roomsRes, bkRes, allDayRes] = await Promise.all([
       supabase.from('seats').select('*').order('seat_number'),
       supabase.from('room').select('id, name'),
+      // Fetch bookings at the same time so grid renders once with correct colours
+      supabase.from('bookings').select('*').eq('status', 'active')
+        .lt('start_ts', endTime < startTime
+          ? `${new Date(new Date(date+'T00:00:00').setDate(new Date(date+'T00:00:00').getDate()+1)).toISOString().slice(0,10)}T${endTime}:00`
+          : `${date}T${endTime}:00`)
+        .gt('end_ts', `${date}T${startTime}:00`),
+      supabase.from('bookings').select('*').eq('status', 'active')
+        .lt('start_ts', `${date}T23:59:59`).gt('end_ts', `${date}T00:00:00`),
     ])
     if (seatsRes.data) setSeats(seatsRes.data as Seat[])
     if (roomsRes.data) {
@@ -169,24 +213,40 @@ export default function SeatLayoutPage() {
       roomsRes.data.forEach((r: { id: number; name: string }) => { map[r.id] = r.name })
       setRooms(map)
     }
+    if (bkRes.data) setBookings(bkRes.data as Booking[])
+    if (allDayRes.data) setAllDayBookings(allDayRes.data as Booking[])
     setLoading(false)
   }
 
   async function fetchBookings() {
     setRefreshing(true)
-    const { data } = await supabase
-      .from('bookings')
-      .select('*')
-      .eq('booking_date', date)
+    const windowStart = `${date}T${startTime}:00`
+    const windowEnd   = `${date}T${endTime}:00`
+
+    // For overnight windows (e.g. 23:00–07:00), windowEnd would be next day
+    const effectiveWindowEnd = endTime < startTime
+      ? `${new Date(new Date(date + 'T00:00:00').setDate(new Date(date + 'T00:00:00').getDate() + 1)).toISOString().slice(0,10)}T${endTime}:00`
+      : windowEnd
+
+    // A booking overlaps [windowStart, effectiveWindowEnd) if:
+    //   start_ts < effectiveWindowEnd  AND  end_ts > windowStart
+    const { data } = await supabase.from('bookings').select('*')
       .eq('status', 'active')
-      .lt('start_ts', `${date}T${endTime}:00`)
-      .gt('end_ts', `${date}T${startTime}:00`)
+      .lt('start_ts', effectiveWindowEnd)
+      .gt('end_ts', windowStart)
+
     if (data) setBookings(data as Booking[])
     setRefreshing(false)
   }
 
   async function fetchAllDay() {
-    const { data } = await supabase.from('bookings').select('*').eq('booking_date', date).eq('status', 'active')
+    // All bookings that touch this calendar date
+    const dayStart = `${date}T00:00:00`
+    const dayEnd   = `${date}T23:59:59`
+    const { data } = await supabase.from('bookings').select('*')
+      .eq('status', 'active')
+      .lt('start_ts', dayEnd)
+      .gt('end_ts', dayStart)
     if (data) setAllDayBookings(data as Booking[])
   }
 
