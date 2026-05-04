@@ -115,16 +115,19 @@ export const LANES: LaneSpec[] = [
     id: 'cafeteria',
     prefix: 'CAF',
     title: 'Cafeteria Zone',
-    subtitle: '10 columns × 10 rows · Col 5 R2/R3 missing · 98 seats',
+    subtitle: '10 columns × 10 rows · 90 seats',
     icon: '☕',
     sectionId: 'cafeteria-zone',
     roomId: 20,
     cols: 10,
-    colsRows: Array(10).fill(10),
+    // Col 10 ends at row 4 — rows 5-10 have 9 seats (C1-C9), no C10.
+    colsRows: [10, 10, 10, 10, 10, 10, 10, 10, 10, 4],
     readFromBottom: false,
     excludeCells: [
-      { col: 5, row: 3 },
-      { col: 5, row: 4 },
+      { col: 5, row: 3 },   // gap
+      { col: 5, row: 4 },   // gap
+      { col: 10, row: 3 },  // ends at C9
+      { col: 10, row: 4 },  // ends at C9
     ],
     colGaps: [4],
     rowGaps: [2, 4, 6, 8],
