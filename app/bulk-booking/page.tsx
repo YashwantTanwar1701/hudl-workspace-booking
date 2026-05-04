@@ -70,9 +70,10 @@ const ROW_STATUS_META: Record<RowStatus, { bg: string; color: string; label: str
 
 function parseBookingCSV(
   text: string,
-  seatMap: Record<string, string>,   // seat_number → seat_id
-  deptMap: Record<string, number>,   // dept name (lower) → id
-  shiftMap: Record<string, Shift>,   // shift name (lower) → shift
+  seatMap: Record<string, string>,        // seat_number → seat_id
+  deptMap: Record<string, number>,        // dept name (lower) → id
+  shiftMap: Record<string, Shift>,        // shift name (lower) → shift
+  memberMap: Record<string, TeamMember>,  // emp_name (lower) → TeamMember
 ): ParsedBookingRow[] {
   const lines = text.split(/\r?\n/).filter(l => l.trim())
   if (!lines.length) return []
@@ -81,7 +82,19 @@ function parseBookingCSV(
 
   return dataLines.filter(l => l.trim()).map((line, idx) => {
     const parts = parseCsvLine(line)
-    const [rawDate, rawSeat, rawMember, rawDept, rawShift] = parts.map(p => p.trim())
+    // Support both old format (5 cols: Date,Seat,Name,Dept,Shift)
+    // and new format (6 cols: Date,Seat,EmpID,Name,Dept,Shift)
+    let rawDate: string, rawSeat: string, rawEmpId: string, rawName: string, rawDept: string, rawShift: string
+    if (parts.length >= 6) {
+      // New 6-column format
+      ;[rawDate, rawSeat, rawEmpId, rawName, rawDept, rawShift] = parts.map(p => p.trim())
+    } else {
+      // Old 5-column format — EmpID may be embedded in name as "Name [ID]"
+      const [d, s, nm, dep, sh] = parts.map(p => p.trim())
+      rawDate = d; rawSeat = s; rawDept = dep; rawShift = sh
+      const match = nm?.match(/^(.+?)\s*\[(.+?)\]$/)
+      rawEmpId = match ? match[2] : ''; rawName = match ? match[1].trim() : (nm ?? '')
+    }
     const errors: string[] = []
     let status: RowStatus = 'ok'
 
@@ -95,10 +108,30 @@ function parseBookingCSV(
     if (!rawSeat) errors.push('Seat number missing')
     else if (!seat_id) errors.push(`Seat "${rawSeat}" not found`)
 
-    // Member
-    if (!rawMember) errors.push('Team member missing')
+    // Member — combine EMP ID + Name into booked_for
+    let booked_for = ''
+    if (!rawName && !rawEmpId) {
+      errors.push('Team member missing')
+    } else {
+      // If EMP ID provided, use it; otherwise look up by name
+      const empId = rawEmpId?.trim().toUpperCase()
+      const name  = rawName?.trim()
+      if (empId && name) {
+        booked_for = `${name} [${empId}]`
+      } else if (empId && !name) {
+        // Look up name from team members by emp_id
+        const found = memberMap[empId]
+        booked_for = found ? `${found.emp_name} [${found.emp_id}]` : `[${empId}]`
+        if (!found) errors.push(`EMP ID "${empId}" not found in your team list — name will be missing`)
+      } else if (name && !empId) {
+        // Look up emp_id from team members by name
+        const found = memberMap[name.toLowerCase()]
+        booked_for = found ? `${found.emp_name} [${found.emp_id}]` : name
+        if (!found) errors.push(`"${name}" not found in team list — EMP ID will be missing`)
+      }
+    }
 
-    // Department (optional — warn but don't block)
+    // Department
     const department_id = rawDept ? (deptMap[rawDept.toLowerCase()] ?? null) : null
     const department_name = rawDept ?? ''
     if (rawDept && !department_id) errors.push(`Department "${rawDept}" not found — will be left blank`)
@@ -112,7 +145,7 @@ function parseBookingCSV(
     const end_time   = shift ? toHHMMSS(shift.end_time)   : ''
     const overnight  = shift ? isOvernight(start_time, end_time) : false
 
-    if (errors.some(e => e.includes('missing') || e.includes('not found') && !e.includes('left blank'))) {
+    if (errors.some(e => e.includes('missing') || (e.includes('not found') && !e.includes('left blank') && !e.includes('EMP ID') && !e.includes('team list')))) {
       status = 'invalid'
     } else if (overnight) {
       status = 'ok_overnight'
@@ -124,7 +157,7 @@ function parseBookingCSV(
       date: rawDate ?? '',
       seat_number: rawSeat?.toUpperCase() ?? '',
       seat_id,
-      booked_for: rawMember ?? '',
+      booked_for,
       department_id,
       department_name,
       shift_id: shift?.id ?? null,
@@ -147,6 +180,7 @@ export default function BulkBookingPage() {
   const [shifts, setShifts]     = useState<Shift[]>([])
   const [departments, setDepts] = useState<Department[]>([])
   const [rooms, setRooms]       = useState<Room[]>([])
+  const [members, setMembers]   = useState<TeamMember[]>([])
   const [dataLoading, setDataLoading] = useState(true)
 
   const [csvRows, setCsvRows]         = useState<ParsedBookingRow[]>([])
@@ -160,31 +194,39 @@ export default function BulkBookingPage() {
 
   async function loadData() {
     setDataLoading(true)
-    const [s, sh, d, r] = await Promise.all([
+    const [s, sh, d, r, m] = await Promise.all([
       supabase.from('seats').select('id, seat_number, room_id, is_active').eq('is_active', true).order('seat_number'),
       supabase.from('shift').select('*').order('name'),
       supabase.from('department').select('*').order('name'),
       supabase.from('room').select('id, name').order('name'),
+      supabase.from('team_members').select('*').eq('owner_id', user!.id).order('emp_name'),
     ])
     if (s.data)  setSeats(s.data as Seat[])
     if (sh.data) setShifts(sh.data as Shift[])
     if (d.data)  setDepts(d.data as Department[])
     if (r.data)  setRooms(r.data as Room[])
+    if (m.data)  setMembers(m.data as TeamMember[])
     setDataLoading(false)
   }
 
   // Lookup maps
-  const seatMap  = Object.fromEntries(seats.map(s => [s.seat_number.toUpperCase(), s.id]))
-  const deptMap  = Object.fromEntries(departments.map(d => [d.name.toLowerCase(), d.id]))
-  const shiftMap = Object.fromEntries(shifts.map(s => [s.name.toLowerCase(), s]))
-  const roomMap  = Object.fromEntries(rooms.map(r => [r.id, r.name]))
+  const seatMap   = Object.fromEntries(seats.map(s => [s.seat_number.toUpperCase(), s.id]))
+  const deptMap   = Object.fromEntries(departments.map(d => [d.name.toLowerCase(), d.id]))
+  const shiftMap  = Object.fromEntries(shifts.map(s => [s.name.toLowerCase(), s]))
+  const roomMap   = Object.fromEntries(rooms.map(r => [r.id, r.name]))
+  // memberMap: keyed by emp_name lowercase AND emp_id uppercase for flexible lookup
+  const memberMap: Record<string, TeamMember> = {}
+  members.forEach(m => {
+    memberMap[m.emp_name.toLowerCase()] = m
+    memberMap[m.emp_id.toUpperCase()] = m
+  })
 
   function downloadTemplate() {
     // Sheet 1: template (what user fills)
     const templateRows = [
-      ['Date (YYYY-MM-DD)', 'Seat Number', 'Team Member', 'Department', 'Shift Name'],
-      ['2026-05-10', 'SRL-001', 'John Smith', 'Engineering', 'General Shift'],
-      ['2026-05-10', 'SRL-002', 'Priya Sharma', 'Engineering', 'Billing Shift 1'],
+      ['Date (YYYY-MM-DD)', 'Seat Number', 'EMP ID', 'Full Name', 'Department', 'Shift Name'],
+      ['2026-05-10', 'SRL-001', 'E1001', 'John Smith', 'Engineering', 'General Shift'],
+      ['2026-05-10', 'SRL-002', 'E1002', 'Priya Sharma', 'Engineering', 'Night Shift'],
     ]
 
     // Sheet 2: reference data (valid seats)
@@ -199,12 +241,19 @@ export default function BulkBookingPage() {
     // Sheet 4: departments
     const deptRefRows = [['Department Name'], ...departments.map(d => [d.name])]
 
-    // Combine into one CSV with section headers separated by blank lines
+    // Sheet 5: team members (the user's own list)
+    const memberRefRows = [
+      ['EMP ID', 'Full Name'],
+      ...members.map(m => [m.emp_id, m.emp_name])
+    ]
+
+    // Combine into one CSV
     const sections = [
       ['=== BOOKING TEMPLATE (fill this section) ===', ...templateRows.map(r => r.join(','))],
       ['', '=== VALID SEAT NUMBERS ===', ...seatRefRows.map(r => r.join(','))],
       ['', '=== VALID SHIFT NAMES ===', ...shiftRefRows.map(r => r.join(','))],
       ['', '=== VALID DEPARTMENT NAMES ===', ...deptRefRows.map(r => r.join(','))],
+      ['', '=== YOUR TEAM MEMBERS (use EMP ID and Full Name columns) ===', ...memberRefRows.map(r => r.join(','))],
     ]
 
     const csv = sections.flat().join('\n')
@@ -241,7 +290,7 @@ export default function BulkBookingPage() {
         if (!inRef && line.trim()) dataLines.push(line)
       }
       const cleanText = dataLines.join('\n')
-      setCsvRows(parseBookingCSV(cleanText, seatMap, deptMap, shiftMap))
+      setCsvRows(parseBookingCSV(cleanText, seatMap, deptMap, shiftMap, memberMap))
     }
     reader.readAsText(file)
   }
@@ -350,7 +399,7 @@ export default function BulkBookingPage() {
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>📥 Import Bookings via CSV</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                Required columns: <strong>Date</strong>, <strong>Seat Number</strong>, <strong>Team Member</strong>, <strong>Department</strong>, <strong>Shift Name</strong>
+                Required columns: <strong>Date</strong>, <strong>Seat Number</strong>, <strong>EMP ID</strong>, <strong>Full Name</strong>, <strong>Department</strong>, <strong>Shift Name</strong>
               </div>
             </div>
             <button onClick={downloadTemplate}
@@ -363,11 +412,12 @@ export default function BulkBookingPage() {
             {/* Column reference */}
             <div style={{ marginBottom: 14, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px,1fr))', gap: 8 }}>
               {[
-                { col: 'Date',        fmt: 'YYYY-MM-DD',          eg: '2026-05-10' },
-                { col: 'Seat Number', fmt: 'Exact seat number',   eg: 'SRL-001' },
-                { col: 'Team Member', fmt: 'Name or Name [ID]',   eg: 'John Smith' },
-                { col: 'Department',  fmt: 'Department name',     eg: 'Engineering' },
-                { col: 'Shift Name',  fmt: 'Exact shift name',    eg: 'General Shift' },
+                { col: 'Date',        fmt: 'YYYY-MM-DD',        eg: '2026-05-10' },
+                { col: 'Seat Number', fmt: 'Exact seat number', eg: 'SRL-001' },
+                { col: 'EMP ID',      fmt: 'Employee ID',       eg: 'E1001' },
+                { col: 'Full Name',   fmt: 'Employee full name',eg: 'John Smith' },
+                { col: 'Department',  fmt: 'Department name',   eg: 'Engineering' },
+                { col: 'Shift Name',  fmt: 'Exact shift name',  eg: 'General Shift' },
               ].map(({ col, fmt, eg }) => (
                 <div key={col} style={{ padding: '10px 12px', borderRadius: 9, background: 'var(--muted-bg)', border: '1px solid var(--card-border)' }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 2 }}>{col}</div>
@@ -415,7 +465,7 @@ export default function BulkBookingPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                        {['#', 'Date', 'Seat', 'Team Member', 'Department', 'Shift', 'Status'].map(h => (
+                        {['#', 'Date', 'Seat', 'EMP ID', 'Full Name', 'Department', 'Shift', 'Status'].map(h => (
                           <th key={h} style={s.th}>{h}</th>
                         ))}
                       </tr>
@@ -432,7 +482,12 @@ export default function BulkBookingPage() {
                               {row.seat_number || <span style={{ color: '#dc2626' }}>—</span>}
                               {!row.seat_id && row.seat_number && <div style={{ fontSize: 10, color: '#dc2626' }}>not found</div>}
                             </td>
-                            <td style={{ ...s.td, maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{row.booked_for || <span style={{ color: '#dc2626' }}>—</span>}</td>
+                            <td style={{ ...s.td, fontFamily: 'monospace', fontSize: 11 }}>
+                              {(() => { const m = row.booked_for.match(/^(.+?)\s*\[(.+?)\]$/); return m ? m[2] : (row.booked_for ? '—' : <span style={{color:'#dc2626'}}>—</span>) })()}
+                            </td>
+                            <td style={{ ...s.td, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {(() => { const m = row.booked_for.match(/^(.+?)\s*\[(.+?)\]$/); return m ? m[1] : row.booked_for || <span style={{color:'#dc2626'}}>—</span> })()}
+                            </td>
                             <td style={{ ...s.td, color: row.department_id ? 'var(--ink-700)' : 'var(--muted)' }}>
                               {row.department_name || '—'}
                               {row.department_name && !row.department_id && <div style={{ fontSize: 10, color: '#f59e0b' }}>will be blank</div>}

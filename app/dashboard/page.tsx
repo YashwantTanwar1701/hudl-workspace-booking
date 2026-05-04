@@ -260,7 +260,21 @@ export default function DashboardPage() {
     })
     const byDept = Object.entries(deptCounts).sort((a, b) => b[1] - a[1]).map(([label, value]) => ({ label, value }))
 
-    return { active, cancelled, uniqueUsers, top10, byZone, monthly, dayData, osCounts, byDept }
+    // Unique booked-for people (from booked_for column, formatted "Name [EMP_ID]")
+    const bookedForCounts: Record<string, { name: string; empId: string; count: number }> = {}
+    active.forEach(b => {
+      if (!b.booked_for) return
+      const match = b.booked_for.match(/^(.+?)\s*\[(.+?)\]$/)
+      const name  = match ? match[1].trim() : b.booked_for.trim()
+      const empId = match ? match[2].trim() : ''
+      const key   = empId || name
+      if (!bookedForCounts[key]) bookedForCounts[key] = { name, empId, count: 0 }
+      bookedForCounts[key].count++
+    })
+    const topBookedFor   = Object.values(bookedForCounts).sort((a, b) => b.count - a.count).slice(0, 10)
+    const uniqueSeatedPeople = Object.keys(bookedForCounts).length
+
+    return { active, cancelled, uniqueUsers, uniqueSeatedPeople, top10, topBookedFor, byZone, monthly, dayData, osCounts, byDept }
   }
 
   const companyStats = useMemo(() => computeStats(allBookings), [allBookings, roomMap])
@@ -327,6 +341,14 @@ export default function DashboardPage() {
               <KPICard label="Active" value={myActive} color="#15803d" />
               <KPICard label="Cancelled" value={myCancelled} color="#dc2626" />
               <KPICard label="Hours Booked" value={Math.round(myHours)} sub="estimated" color="#7c3aed" />
+              <KPICard label="Seat Users" value={(() => {
+                const ids = new Set<string>()
+                bookings.filter(b => b.status === 'active' && b.booked_for).forEach(b => {
+                  const m = b.booked_for!.match(/\[(.+?)\]$/)
+                  ids.add(m ? m[1] : b.booked_for!)
+                })
+                return ids.size
+              })()} color="#0369a1" sub="booked for" />
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <Card>
@@ -349,6 +371,59 @@ export default function DashboardPage() {
                 })()} />
               </Card>
             </div>
+
+            {/* Seat users list for this period */}
+            {(() => {
+              // Build unique seat users keyed by EMP ID (or name if no ID)
+              const byEmpId: Record<string, { name: string; empId: string; count: number; lastDate: string }> = {}
+              bookings.filter(b => b.status === 'active' && b.booked_for).forEach(b => {
+                const match = b.booked_for!.match(/^(.+?)\s*\[(.+?)\]$/)
+                const name  = match ? match[1].trim() : b.booked_for!.trim()
+                const empId = match ? match[2].trim() : ''
+                const key   = empId || name
+                if (!byEmpId[key] || b.booking_date > byEmpId[key].lastDate) {
+                  // Keep most recent name (handles name changes)
+                  byEmpId[key] = { name, empId, count: (byEmpId[key]?.count || 0) + 1, lastDate: b.booking_date }
+                } else {
+                  byEmpId[key].count++
+                }
+              })
+              const list = Object.values(byEmpId).sort((a, b) => b.count - a.count)
+              if (list.length === 0) return null
+              return (
+                <Card>
+                  <CardTitle>👤 Seat Users in This Period ({list.length})</CardTitle>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+                      <thead>
+                        <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
+                          {['#', 'EMP ID', 'Name', 'Bookings'].map(h => (
+                            <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {list.map((u, i) => (
+                          <tr key={u.empId || u.name} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
+                            <td style={{ padding: '7px 12px', color: 'var(--ink-300)', fontSize: 11 }}>{i + 1}</td>
+                            <td style={{ padding: '7px 12px', fontFamily: 'monospace', fontWeight: 700, color: u.empId ? 'var(--ink-900)' : 'var(--ink-300)' }}>
+                              {u.empId || '—'}
+                            </td>
+                            <td style={{ padding: '7px 12px', color: 'var(--ink-700)' }}>{u.name}</td>
+                            <td style={{ padding: '7px 12px' }}>
+                              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: '#0369a1' }}>{u.count}</span>
+                                <span style={{ height: 6, width: Math.max(4, Math.round((u.count / list[0].count) * 80)), background: '#bfdbfe', borderRadius: 3, display: 'inline-block' }} />
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )
+            })()}
           </div>
         )}
 
@@ -360,6 +435,7 @@ export default function DashboardPage() {
               <KPICard label="Active Bookings" value={companyStats.active.length} color="#15803d" />
               <KPICard label="Cancelled" value={companyStats.cancelled.length} color="#dc2626" />
               <KPICard label="Unique Users" value={companyStats.uniqueUsers} color="#7c3aed" sub="who booked" />
+              <KPICard label="Unique Seat Users" value={companyStats.uniqueSeatedPeople} color="#0369a1" sub="booked for" />
               <KPICard label="Cancel Rate" value={`${companyStats.active.length + companyStats.cancelled.length > 0 ? Math.round(companyStats.cancelled.length / (companyStats.active.length + companyStats.cancelled.length) * 100) : 0}%`} color="#f59e0b" />
             </div>
 
@@ -375,10 +451,20 @@ export default function DashboardPage() {
                 <CardTitle>🏆 Top 10 Bookers</CardTitle>
                 <BarChart color="#7c3aed" data={companyStats.top10.map(u => ({ label: u.name, value: u.count }))} />
               </Card>
-              {/* By zone */}
+              {/* Top booked-for people */}
               <Card>
-                <CardTitle>🗺️ Booking by Zone / Space</CardTitle>
-                <BarChart color="#059669" data={companyStats.byZone} />
+                <CardTitle>👤 Top Seat Users (Booked For)</CardTitle>
+                {companyStats.topBookedFor.length === 0 ? (
+                  <div style={{ padding: '24px 0', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+                    No booked-for data yet.<br/>
+                    <span style={{ fontSize: 12 }}>Add EMP ID when booking seats for team members.</span>
+                  </div>
+                ) : (
+                  <BarChart color="#0369a1" data={companyStats.topBookedFor.map(u => ({
+                    label: u.empId ? `${u.name} [${u.empId}]` : u.name,
+                    value: u.count
+                  }))} />
+                )}
               </Card>
             </div>
 
@@ -399,13 +485,19 @@ export default function DashboardPage() {
               </Card>
             </div>
 
-            {/* By department */}
-            {companyStats.byDept.length > 0 && (
+            {/* By zone + by department */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
               <Card>
-                <CardTitle>🏬 Booking by Department</CardTitle>
-                <BarChart color="#f59e0b" data={companyStats.byDept} />
+                <CardTitle>🗺️ Booking by Zone / Space</CardTitle>
+                <BarChart color="#059669" data={companyStats.byZone} />
               </Card>
-            )}
+              {companyStats.byDept.length > 0 ? (
+                <Card>
+                  <CardTitle>🏬 Booking by Department</CardTitle>
+                  <BarChart color="#f59e0b" data={companyStats.byDept} />
+                </Card>
+              ) : <div />}
+            </div>
           </div>
         )}
 
@@ -492,7 +584,15 @@ export default function DashboardPage() {
             <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
               <button
                 onClick={() => {
-                  const rows = [['Date','Seat','Room','Status','Start','End','Booked For','Department'].join(','), ...bookings.map(b => [b.booking_date, b.seat?.seat_number||'', b.seat?.room_id ? roomMap[b.seat.room_id]?.name||'' : '', b.status, b.start_time, b.end_time, b.booked_for||'', b.department?.name||''].join(','))]
+                  const rows = [
+                    ['Date','Seat','Room','Status','Start','End','EMP ID','Name','Department'].join(','),
+                    ...bookings.map(b => {
+                      const m = b.booked_for?.match(/^(.+?)\s*\[(.+?)\]$/)
+                      const name  = m ? m[1].trim() : (b.booked_for || '')
+                      const empId = m ? m[2].trim() : ''
+                      return [b.booking_date, b.seat?.seat_number||'', b.seat?.room_id ? roomMap[b.seat.room_id]?.name||'' : '', b.status, b.start_time, b.end_time, empId, name, b.department?.name||''].join(',')
+                    })
+                  ]
                   const a = document.createElement('a'); a.href = 'data:text/csv,' + encodeURIComponent(rows.join('\n')); a.download = 'my-bookings.csv'; a.click()
                 }}
                 style={{ padding: '7px 14px', borderRadius: 8, border: 'none', background: '#1e3a5f', color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', fontWeight: 600 }}
@@ -505,7 +605,7 @@ export default function DashboardPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                      {['Date','Seat','Zone','Time','Booked For','Dept','Status'].map(h => (
+                      {['Date','Seat','Zone','Time','EMP ID','Name','Dept','Status'].map(h => (
                         <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
                       ))}
                     </tr>
@@ -517,7 +617,12 @@ export default function DashboardPage() {
                         <td style={{ padding: '8px 13px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--ink-900)' }}>{b.seat?.seat_number || '—'}</td>
                         <td style={{ padding: '8px 13px', color: 'var(--ink-700)' }}>{b.seat?.room_id ? roomMap[b.seat.room_id]?.name || '—' : '—'}</td>
                         <td style={{ padding: '8px 13px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>{b.start_time?.slice(0,5)} – {b.end_time?.slice(0,5)}</td>
-                        <td style={{ padding: '8px 13px', color: 'var(--ink-700)' }}>{b.booked_for || '—'}</td>
+                        <td style={{ padding: '8px 13px', fontFamily: 'monospace', fontSize: 11, color: 'var(--ink-700)', fontWeight: 600 }}>
+                          {(() => { const m = b.booked_for?.match(/\[(.+?)\]$/); return m ? m[1] : '—' })()}
+                        </td>
+                        <td style={{ padding: '8px 13px', color: 'var(--ink-700)' }}>
+                          {(() => { const m = b.booked_for?.match(/^(.+?)\s*\[/); return m ? m[1].trim() : (b.booked_for || '—') })()}
+                        </td>
                         <td style={{ padding: '8px 13px', color: 'var(--muted)' }}>{b.department?.name || '—'}</td>
                         <td style={{ padding: '8px 13px' }}>
                           <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: b.status === 'active' ? '#dcfce7' : '#f1f5f9', color: b.status === 'active' ? '#15803d' : 'var(--muted)' }}>{b.status}</span>
