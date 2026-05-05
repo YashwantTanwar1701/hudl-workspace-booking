@@ -184,7 +184,7 @@ export default function SeatLayoutPage() {
     if (!user) return
     setLoading(true)
     Promise.all([
-      supabase.from('seats').select('*').order('seat_number'),
+      supabase.from('seats').select('*').order('sort_order'),
       supabase.from('room').select('id, name'),
     ]).then(([seatsRes, roomsRes]) => {
       if (seatsRes.data) setSeats(seatsRes.data as Seat[])
@@ -258,7 +258,7 @@ export default function SeatLayoutPage() {
   async function fetchSeats() {
     setLoading(true)
     const [seatsRes, roomsRes] = await Promise.all([
-      supabase.from('seats').select('*').order('seat_number'),
+      supabase.from('seats').select('*').order('sort_order'),
       supabase.from('room').select('id, name'),
     ])
     if (seatsRes.data) setSeats(seatsRes.data as Seat[])

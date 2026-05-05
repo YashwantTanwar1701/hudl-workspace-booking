@@ -54,6 +54,7 @@ export interface Seat {
   created_at: string
   is_locked: boolean
   room_id: number | null
+  sort_order: number          // controls grid position — rename seat_number freely
   room?: Room
 }
 

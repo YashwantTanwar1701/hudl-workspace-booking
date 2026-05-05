@@ -21,6 +21,15 @@ const TABS: { id: Tab; icon: string; label: string }[] = [
 ]
 
 /* ─── Seat Edit Modal ─── */
+function FieldWrap({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</label>
+      {children}
+    </div>
+  )
+}
+
 function SeatModal({ seat, rooms, onSave, onClose }: {
   seat: Partial<Seat> & { _isNew?: boolean }
   rooms: Room[]
@@ -36,12 +45,6 @@ function SeatModal({ seat, rooms, onSave, onClose }: {
     if (!form.seat_number?.trim()) { setErr('Seat number required'); return }
     setSaving(true); await onSave(form); setSaving(false)
   }
-  const Field = ({ label, node }: { label: string; node: React.ReactNode }) => (
-    <div>
-      <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</label>
-      {node}
-    </div>
-  )
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card-bg)', borderRadius: 16, width: '100%', maxWidth: 520, boxShadow: 'var(--shadow-xl)', overflow: 'hidden' }}>
@@ -50,17 +53,39 @@ function SeatModal({ seat, rooms, onSave, onClose }: {
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--ink-300)' }}>×</button>
         </div>
         <div style={{ padding: '20px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-          <Field label="Seat Number" node={<input style={inp} value={form.seat_number||''} onChange={e=>f('seat_number',e.target.value)} placeholder="SRL-001" />} />
-          <Field label="Room" node={<select style={inp} value={form.room_id??''} onChange={e=>f('room_id',parseInt(e.target.value))}><option value="">Select…</option>{rooms.map(r=><option key={r.id} value={r.id}>{r.name}</option>)}</select>} />
-          <Field label="OS Type" node={<select style={inp} value={form.os_type||'other'} onChange={e=>f('os_type',e.target.value as OsType)}><option value="mac">macOS</option><option value="windows">Windows</option><option value="other">Seat Only</option></select>} />
-          <Field label="Machine #" node={<input style={inp} type="number" value={form.machine_number??''} onChange={e=>f('machine_number',e.target.value?parseInt(e.target.value):null)} placeholder="Optional" />} />
-          <Field label="Status" node={<select style={inp} value={form.is_active?'active':'inactive'} onChange={e=>f('is_active',e.target.value==='active')}><option value="active">Active</option><option value="inactive">Inactive</option></select>} />
-          <Field label="Notes" node={<input style={inp} value={form.notes||''} onChange={e=>f('notes',e.target.value)} placeholder="Optional" />} />
+          <FieldWrap label="Seat Number">
+            <input style={inp} value={form.seat_number || ''} onChange={e => f('seat_number', e.target.value)} placeholder="SRL-001" autoFocus />
+          </FieldWrap>
+          <FieldWrap label="Room">
+            <select style={inp} value={form.room_id ?? ''} onChange={e => f('room_id', parseInt(e.target.value))}>
+              <option value="">Select…</option>
+              {rooms.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
+            </select>
+          </FieldWrap>
+          <FieldWrap label="OS Type">
+            <select style={inp} value={form.os_type || 'other'} onChange={e => f('os_type', e.target.value as OsType)}>
+              <option value="mac">macOS</option>
+              <option value="windows">Windows</option>
+              <option value="other">Seat Only</option>
+            </select>
+          </FieldWrap>
+          <FieldWrap label="Machine #">
+            <input style={inp} type="number" value={form.machine_number ?? ''} onChange={e => f('machine_number', e.target.value ? parseInt(e.target.value) : null)} placeholder="Optional" />
+          </FieldWrap>
+          <FieldWrap label="Status">
+            <select style={inp} value={form.is_active ? 'active' : 'inactive'} onChange={e => f('is_active', e.target.value === 'active')}>
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </FieldWrap>
+          <FieldWrap label="Notes">
+            <input style={inp} value={form.notes || ''} onChange={e => f('notes', e.target.value)} placeholder="Optional" />
+          </FieldWrap>
         </div>
-        {err && <div style={{ margin:'0 20px 12px', padding:'8px 12px', background:'var(--danger-bg)', border:'1px solid var(--danger-border)', borderRadius:7, fontSize:12, color:'var(--danger)' }}>{err}</div>}
-        <div style={{ padding:'14px 20px', borderTop:'1px solid var(--card-border)', display:'flex', gap:10, justifyContent:'flex-end' }}>
-          <button onClick={onClose} style={{ padding:'8px 16px', borderRadius:8, border:'1px solid var(--card-border)', background:'var(--muted-bg)', cursor:'pointer', fontFamily:'inherit', fontSize:13, color:'var(--ink-700)' }}>Cancel</button>
-          <button onClick={handleSave} disabled={saving} style={{ padding:'8px 16px', borderRadius:8, border:'none', background:'#1e3a5f', color:'#fff', cursor:saving?'wait':'pointer', fontFamily:'inherit', fontSize:13, fontWeight:700 }}>{saving?'Saving…':seat._isNew?'Add Seat':'Save'}</button>
+        {err && <div style={{ margin: '0 20px 12px', padding: '8px 12px', background: 'var(--danger-bg)', border: '1px solid var(--danger-border)', borderRadius: 7, fontSize: 12, color: 'var(--danger)' }}>{err}</div>}
+        <div style={{ padding: '14px 20px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--muted-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink-700)' }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#1e3a5f', color: '#fff', cursor: saving ? 'wait' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>{saving ? 'Saving…' : seat._isNew ? 'Add Seat' : 'Save'}</button>
         </div>
       </div>
     </div>
@@ -262,7 +287,7 @@ export default function AdminPage() {
   async function fetchAll() {
     setLoading(true)
     const [s, b, u, r, d, p, rolesRes] = await Promise.all([
-      supabase.from('seats').select('*').order('seat_number'),
+      supabase.from('seats').select('*').order('sort_order'),
       supabase.from('bookings').select('*, seat:seats(*), user:users(*), department:department(*)').order('created_at', { ascending: false }).range(0, 2000),
       supabase.from('users').select('*').order('created_at', { ascending: false }),
       supabase.from('room').select('*').order('name'),

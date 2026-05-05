@@ -195,7 +195,7 @@ export default function BulkBookingPage() {
   async function loadData() {
     setDataLoading(true)
     const [s, sh, d, r, m] = await Promise.all([
-      supabase.from('seats').select('id, seat_number, room_id, is_active').eq('is_active', true).order('seat_number'),
+      supabase.from('seats').select('id, seat_number, room_id, is_active').eq('is_active', true).order('sort_order'),
       supabase.from('shift').select('*').order('name'),
       supabase.from('department').select('*').order('name'),
       supabase.from('room').select('id, name').order('name'),

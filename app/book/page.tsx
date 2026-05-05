@@ -813,7 +813,7 @@ function BookInner() {
   }, [date, effectiveStart, endTime, timeCrossesMidnight, endDate])
 
   async function fetchSeats() {
-    const { data } = await supabase.from('seats').select('*').order('seat_number')
+    const { data } = await supabase.from('seats').select('*').order('sort_order')
     if (data) setSeats(data as Seat[])
     setLoadingSeats(false)
   }
