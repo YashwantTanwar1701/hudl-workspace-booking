@@ -411,7 +411,6 @@ export default function SeatLayoutPage() {
               View Only
             </span>
             <span style={{ fontSize: 11, color: 'var(--ink-300)', marginLeft: 4 }}>
-              · Click a section pill to jump to that area
             </span>
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -696,7 +695,6 @@ function LaneCard({
           </div>
           <div>
             <div style={{ fontSize: compact ? 14 : 15, fontWeight: 800, color: 'var(--ink-900)', lineHeight: 1.1 }}>{getLaneName(lane, roomNames)}</div>
-            <div style={{ fontSize: compact ? 10.5 : 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>

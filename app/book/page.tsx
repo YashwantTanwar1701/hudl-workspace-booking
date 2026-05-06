@@ -163,7 +163,6 @@ function LaneBookingCard({
               </span>
             )}
           </div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: av === 0 ? '#dc2626' : '#15803d' }}>{av} avail</span>
