@@ -13,10 +13,10 @@ function toProperCase(s: string) {
 
 function downloadTemplate() {
   const rows = [
-    ['EMP ID', 'Full Name'],
-    ['E1001', 'John Smith'],
-    ['E1002', 'Priya Sharma'],
-    ['E1003', 'Rahul Verma'],
+    ['EMP ID', 'Full Name', 'Email'],
+    ['E1001', 'John Smith', 'john.smith@company.com'],
+    ['E1002', 'Priya Sharma', 'priya.sharma@company.com'],
+    ['E1003', 'Rahul Verma', 'rahul.verma@company.com'],
   ]
   const blob = new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
@@ -26,7 +26,7 @@ function downloadTemplate() {
 }
 
 type RowStatus = 'ok' | 'duplicate' | 'invalid' | 'exists'
-type ParsedRow = { emp_id: string; emp_name: string; status: RowStatus; note: string }
+type ParsedRow = { emp_id: string; emp_name: string; email: string; status: RowStatus; note: string }
 
 const STATUS_META: Record<RowStatus, { bg: string; color: string; label: string }> = {
   ok:        { bg: '#f0fdf4', color: '#15803d', label: '✓ Ready'          },
@@ -55,20 +55,23 @@ function parseCSV(text: string, existing: TeamMember[]): ParsedRow[] {
 
   return dataLines.filter(l => l.trim()).map(line => {
     const parts = parseCsvLine(line)
-    const rawId   = (parts[0] ?? '').trim()
-    const rawName = (parts[1] ?? '').trim()
+    const rawId    = (parts[0] ?? '').trim()
+    const rawName  = (parts[1] ?? '').trim()
+    const rawEmail = (parts[2] ?? '').trim().toLowerCase()
 
-    if (!rawId || !rawName) return { emp_id: rawId, emp_name: rawName, status: 'invalid' as const, note: 'EMP ID or Name is empty' }
+    if (!rawId || !rawName) return { emp_id: rawId, emp_name: rawName, email: rawEmail, status: 'invalid' as const, note: 'EMP ID or Name is empty' }
+    if (!rawEmail)         return { emp_id: rawId, emp_name: rawName, email: '', status: 'invalid' as const, note: 'Email is required' }
 
     const emp_id   = rawId.toUpperCase()
     const emp_name = toProperCase(rawName)
+    const email    = rawEmail
     const fileKey  = `${emp_id}||${emp_name.toLowerCase()}`
 
-    if (existingKeys.has(fileKey)) return { emp_id, emp_name, status: 'exists'    as const, note: 'Already in your list' }
-    if (seenInFile.has(fileKey))   return { emp_id, emp_name, status: 'duplicate' as const, note: 'Appears earlier in this file' }
+    if (existingKeys.has(fileKey)) return { emp_id, emp_name, email, status: 'exists'    as const, note: 'Already in your list' }
+    if (seenInFile.has(fileKey))   return { emp_id, emp_name, email, status: 'duplicate' as const, note: 'Appears earlier in this file' }
 
     seenInFile.add(fileKey)
-    return { emp_id, emp_name, status: 'ok' as const, note: 'Will be imported' }
+    return { emp_id, emp_name, email, status: 'ok' as const, note: 'Will be imported' }
   })
 }
 
@@ -81,6 +84,7 @@ export default function MyTeamPage() {
   const [loading, setLoading]       = useState(true)
   const [empId, setEmpId]           = useState('')
   const [empName, setEmpName]       = useState('')
+  const [empEmail, setEmpEmail]     = useState('')
   const [saving, setSaving]         = useState(false)
   const [err, setErr]               = useState('')
   const [success, setSuccess]       = useState('')
@@ -112,8 +116,9 @@ export default function MyTeamPage() {
     const cleanName = toProperCase(empName)
     if (!cleanId)   { setErr('EMP ID is required'); return }
     if (!cleanName) { setErr('Employee name is required'); return }
+    if (!empEmail.trim()) { setErr('Email is required'); return }
     setSaving(true); setErr('')
-    const { error } = await supabase.from('team_members').insert({ owner_id: user!.id, emp_id: cleanId, emp_name: cleanName })
+    const { error } = await supabase.from('team_members').insert({ owner_id: user!.id, emp_id: cleanId, emp_name: cleanName, email: empEmail.trim().toLowerCase() })
     if (error) setErr(error.message.includes('unique') ? `${cleanName} [${cleanId}] is already in your list.` : error.message)
     else { setEmpId(''); setEmpName(''); flash(`${cleanName} added`); await fetchMembers() }
     setSaving(false)
@@ -157,7 +162,7 @@ export default function MyTeamPage() {
     if (!toInsert.length) return
     setImporting(true)
 
-    const rows = toInsert.map(r => ({ owner_id: user!.id, emp_id: r.emp_id, emp_name: r.emp_name }))
+    const rows = toInsert.map(r => ({ owner_id: user!.id, emp_id: r.emp_id, emp_name: r.emp_name, email: r.email.trim() || null }))
     const { error } = await supabase.from('team_members').insert(rows)
 
     if (!error) {
@@ -235,10 +240,10 @@ export default function MyTeamPage() {
         <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 16, overflow: 'hidden' }}>
           <div style={{ padding: '14px 22px', borderBottom: '1px solid var(--card-border)', background: 'var(--muted-bg)' }}>
             <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>Add Member</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Name → Proper Case · EMP ID → UPPERCASE automatically</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>EMP ID → UPPERCASE · Name → Proper Case · Email is required</div>
           </div>
           <div style={{ padding: '16px 22px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr auto', gap: 12, alignItems: 'end' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr 200px auto', gap: 12, alignItems: 'end' }}>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>EMP ID <span style={{ color: '#dc2626' }}>*</span></label>
                 <input placeholder="E.g. E1234" value={empId} onChange={e => { setEmpId(e.target.value); setErr('') }} onKeyDown={e => e.key === 'Enter' && handleAdd()} style={inp} />
@@ -247,8 +252,12 @@ export default function MyTeamPage() {
                 <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Full Name <span style={{ color: '#dc2626' }}>*</span></label>
                 <input placeholder="E.g. John Smith" value={empName} onChange={e => { setEmpName(e.target.value); setErr('') }} onKeyDown={e => e.key === 'Enter' && handleAdd()} style={inp} />
               </div>
-              <button onClick={handleAdd} disabled={saving || !empId.trim() || !empName.trim()}
-                style={{ padding: '9px 22px', borderRadius: 9, border: 'none', background: (!empId.trim() || !empName.trim()) ? '#94a3b8' : '#1e3a5f', color: '#fff', cursor: (!empId.trim() || !empName.trim()) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Email <span style={{ color: '#dc2626' }}>*</span></label>
+                <input placeholder="E.g. john@company.com" value={empEmail} onChange={e => { setEmpEmail(e.target.value); setErr('') }} onKeyDown={e => e.key === 'Enter' && handleAdd()} style={inp} />
+              </div>
+              <button onClick={handleAdd} disabled={saving || !empId.trim() || !empName.trim() || !empEmail.trim()}
+                style={{ padding: '9px 22px', borderRadius: 9, border: 'none', background: (!empId.trim() || !empName.trim() || !empEmail.trim()) ? '#94a3b8' : '#1e3a5f', color: '#fff', cursor: (!empId.trim() || !empName.trim()) ? 'not-allowed' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700, whiteSpace: 'nowrap' }}>
                 {saving ? 'Adding…' : '+ Add'}
               </button>
             </div>
@@ -307,7 +316,7 @@ export default function MyTeamPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                        {['#', 'EMP ID', 'Full Name', 'Status'].map(h => (
+                        {['#', 'EMP ID', 'Full Name', 'Email', 'Status'].map(h => (
                           <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
                         ))}
                       </tr>
@@ -320,6 +329,7 @@ export default function MyTeamPage() {
                             <td style={{ padding: '8px 14px', color: 'var(--ink-300)', fontSize: 11 }}>{i + 1}</td>
                             <td style={{ padding: '8px 14px', fontFamily: 'monospace', color: 'var(--ink-700)' }}>{row.emp_id || <span style={{ color: '#dc2626' }}>—</span>}</td>
                             <td style={{ padding: '8px 14px', fontWeight: row.status === 'ok' ? 600 : 400, color: 'var(--ink-900)' }}>{row.emp_name || <span style={{ color: '#dc2626' }}>—</span>}</td>
+                            <td style={{ padding: '8px 14px', color: 'var(--muted)', fontSize: 12 }}>{row.email || <span style={{ color: 'var(--ink-300)' }}>—</span>}</td>
                             <td style={{ padding: '8px 14px' }}>
                               <span style={{ fontSize: 11, padding: '2px 9px', borderRadius: 99, fontWeight: 600, background: s.bg, color: s.color }}>{s.label}</span>
                             </td>

@@ -448,6 +448,14 @@ export default function MyBookingsPage() {
                       <span>{dur}</span>
                       <span style={{ opacity: 0.3 }}>·</span>
                       <span>{(b.seat?.room_id ? roomMap[b.seat.room_id]?.name : null) || sec?.label || 'Unknown'}</span>
+                      {b.booked_for && (
+                        <>
+                          <span style={{ opacity: 0.3 }}>·</span>
+                          <span style={{ display: 'flex', alignItems: 'center', gap: 3, color: '#0369a1', fontWeight: 600 }}>
+                            👤 {b.booked_for}
+                          </span>
+                        </>
+                      )}
                     </div>
                   </div>
 

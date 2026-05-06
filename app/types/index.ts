@@ -8,6 +8,7 @@ export interface TeamMember {
   owner_id: string
   emp_id: string
   emp_name: string
+  email: string | null
   created_at: string
 }
 

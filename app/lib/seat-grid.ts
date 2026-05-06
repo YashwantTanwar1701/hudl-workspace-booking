@@ -202,7 +202,7 @@ export const LANES: LaneSpec[] = [
     cols: 5,
     colsRows: [1, 1, 2, 2, 2],
     readFromBottom: true,
-    rowGaps: [1],
+    rowGaps: [1, 2],    // double gap between bottom row and top row group
     bgColor: '#E8F5E9',
     darkBgColor: '#0f1a11',
     accentColor: '#4CAF50',
@@ -376,24 +376,6 @@ export const LANES: LaneSpec[] = [
     accentColor: '#388E3C',
     group: 'booth',
   },
-  /* ── Wellness LAST (emergency-only access on Book page) ── */
-  {
-    id: 'wellness',
-    prefix: 'WEL',
-    title: 'Wellness Room',
-    subtitle: '1 seat · Relaxation space · Emergency only',
-    icon: WELLNESS_BED_SVG,
-    iconIsSvg: true,
-    sectionId: 'wellness-room',
-    roomId: 14,
-    cols: 1,
-    colsRows: [1],
-    readFromBottom: false,
-    bgColor: '#FCE4EC',
-    darkBgColor: '#1c0d14',
-    accentColor: '#E91E63',
-    group: 'rooms',
-  },
   /* ── Open Meeting Pod ── */
   {
     id: 'open_pod',
@@ -412,6 +394,25 @@ export const LANES: LaneSpec[] = [
     accentColor: '#00796B',
     group: 'booth',
   },
+  /* ── Wellness LAST (emergency-only access on Book page) ── */
+  {
+    id: 'wellness',
+    prefix: 'WEL',
+    title: 'Wellness Room',
+    subtitle: '1 seat · Relaxation space · Emergency only',
+    icon: WELLNESS_BED_SVG,
+    iconIsSvg: true,
+    sectionId: 'wellness-room',
+    roomId: 14,
+    cols: 1,
+    colsRows: [1],
+    readFromBottom: false,
+    bgColor: '#FCE4EC',
+    darkBgColor: '#1c0d14',
+    accentColor: '#E91E63',
+    group: 'rooms',
+  },
+
 ]
 
 export const BIG_GROUPS: LaneGroup[] = ['top-left', 'top-hr', 'top-th', 'cafeteria']
