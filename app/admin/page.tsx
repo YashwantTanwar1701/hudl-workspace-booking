@@ -333,6 +333,9 @@ export default function AdminPage() {
     await fetchAll()
   }
 
+  const [cancelConfirm, setCancelConfirm] = useState<{ ids: string[]; label: string } | null>(null)
+  const [cancelling, setCancelling] = useState(false)
+
   async function cancelBooking(id: string) {
     await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
     await fetchAll()
@@ -342,6 +345,18 @@ export default function AdminPage() {
     if (!selectedBookings.length) return
     await supabase.from('bookings').update({ status: 'cancelled' }).in('id', selectedBookings)
     setSelectedBookings([]); await fetchAll()
+  }
+
+  async function confirmCancel() {
+    if (!cancelConfirm) return
+    setCancelling(true)
+    if (cancelConfirm.ids.length === 1) {
+      await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', cancelConfirm.ids[0])
+    } else {
+      await supabase.from('bookings').update({ status: 'cancelled' }).in('id', cancelConfirm.ids)
+    }
+    setSelectedBookings([]); await fetchAll()
+    setCancelling(false); setCancelConfirm(null)
   }
 
   async function updateUserRole(id: string, role: string) {
@@ -553,7 +568,7 @@ export default function AdminPage() {
               </select>
               <input type="date" value={dateFilter} onChange={e => setDateFilter(e.target.value)} style={inp({ colorScheme: 'light dark' })} />
               {dateFilter && <button onClick={() => setDateFilter('')} style={{ padding: '6px 10px', borderRadius: 7, border: '1px solid var(--card-border)', background: 'var(--muted-bg)', cursor: 'pointer', fontSize: 12, color: 'var(--muted)', fontFamily: 'inherit' }}>Clear</button>}
-              {selectedBookings.length > 0 && <button onClick={cancelMultiple} style={{ marginLeft: 'auto', padding: '7px 14px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>Cancel {selectedBookings.length} selected</button>}
+              {selectedBookings.length > 0 && <button onClick={() => setCancelConfirm({ ids: selectedBookings, label: `${selectedBookings.length} booking${selectedBookings.length !== 1 ? 's' : ''}` })} style={{ marginLeft: 'auto', padding: '7px 14px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>Cancel {selectedBookings.length} selected</button>}
             </div>
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, overflow: 'hidden' }}>
               <div style={{ overflowX: 'auto' }}>
@@ -574,7 +589,7 @@ export default function AdminPage() {
                         <td style={{ padding: '9px 13px', color: 'var(--ink-700)', fontSize: 12 }}>{b.booking_date}</td>
                         <td style={{ padding: '9px 13px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{b.start_time?.slice(0,5)} – {b.end_time?.slice(0,5)}</td>
                         <td style={{ padding: '9px 13px' }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: b.status === 'active' ? '#dcfce7' : '#f1f5f9', color: b.status === 'active' ? '#15803d' : 'var(--muted)' }}>{b.status}</span></td>
-                        <td style={{ padding: '9px 13px' }}>{b.status === 'active' && <button onClick={() => cancelBooking(b.id)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Cancel</button>}</td>
+                        <td style={{ padding: '9px 13px' }}>{b.status === 'active' && <button onClick={() => setCancelConfirm({ ids: [b.id], label: `${b.seat?.seat_number || 'seat'} on ${b.booking_date} for ${b.booked_for || b.user?.name || 'user'}` })} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Cancel</button>}</td>
                       </tr>
                     ))}
                     {filteredBookings.length === 0 && <tr><td colSpan={10} style={{ padding: 28, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No bookings found</td></tr>}
@@ -772,6 +787,37 @@ USING (auth.role() = 'authenticated');`}</pre>
             </div>
           </div>
         )}
+
+      {/* ── Cancel Confirmation Dialog ── */}
+      {cancelConfirm && (
+        <div onClick={() => !cancelling && setCancelConfirm(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card-bg)', borderRadius: 18, width: '100%', maxWidth: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 20 }}>⚠️</div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink-900)' }}>Cancel Booking?</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>This action cannot be undone</div>
+              </div>
+            </div>
+            <div style={{ padding: '16px 22px' }}>
+              <div style={{ fontSize: 13, color: 'var(--ink-700)', background: 'var(--muted-bg)', padding: '10px 14px', borderRadius: 9, border: '1px solid var(--card-border)' }}>
+                {cancelConfirm.ids.length === 1
+                  ? <>Cancelling booking for <strong>{cancelConfirm.label}</strong></>
+                  : <>Cancelling <strong>{cancelConfirm.label}</strong></>
+                }
+              </div>
+            </div>
+            <div style={{ padding: '14px 22px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setCancelConfirm(null)} disabled={cancelling} style={{ padding: '8px 18px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--muted-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink-700)' }}>
+                Keep Booking
+              </button>
+              <button onClick={confirmCancel} disabled={cancelling} style={{ padding: '8px 18px', borderRadius: 9, border: 'none', background: '#dc2626', color: '#fff', cursor: cancelling ? 'wait' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+                {cancelling ? 'Cancelling…' : `Yes, Cancel${cancelConfirm.ids.length > 1 ? ` ${cancelConfirm.ids.length}` : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       </div>
     </div>
   )
