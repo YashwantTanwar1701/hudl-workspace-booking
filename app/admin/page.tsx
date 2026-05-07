@@ -337,23 +337,26 @@ export default function AdminPage() {
   const [cancelling, setCancelling] = useState(false)
 
   async function cancelBooking(id: string) {
-    await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', id)
+    await supabase.rpc('admin_cancel_bookings', { booking_ids: [id] })
     await fetchAll()
   }
 
   async function cancelMultiple() {
     if (!selectedBookings.length) return
-    await supabase.from('bookings').update({ status: 'cancelled' }).in('id', selectedBookings)
+    await supabase.rpc('admin_cancel_bookings', { booking_ids: selectedBookings })
     setSelectedBookings([]); await fetchAll()
   }
 
   async function confirmCancel() {
     if (!cancelConfirm) return
     setCancelling(true)
-    if (cancelConfirm.ids.length === 1) {
-      await supabase.from('bookings').update({ status: 'cancelled' }).eq('id', cancelConfirm.ids[0])
-    } else {
-      await supabase.from('bookings').update({ status: 'cancelled' }).in('id', cancelConfirm.ids)
+    // Use SECURITY DEFINER RPC — bypasses RLS, checks admin role server-side
+    const { error } = await supabase.rpc('admin_cancel_bookings', {
+      booking_ids: cancelConfirm.ids
+    })
+    if (error) {
+      setMsg('Cancel failed: ' + error.message)
+      setCancelling(false); setCancelConfirm(null); return
     }
     setSelectedBookings([]); await fetchAll()
     setCancelling(false); setCancelConfirm(null)
