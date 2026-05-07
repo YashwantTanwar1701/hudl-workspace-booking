@@ -25,12 +25,13 @@ export interface RolePermission {
 }
 
 export const PERMISSIONS = [
-  { key: 'view_floor_map',   label: 'View Floor Map'    },
-  { key: 'book_seats',       label: 'Book Seats'        },
-  { key: 'view_my_bookings', label: 'View My Bookings'  },
-  { key: 'view_analytics',   label: 'View Analytics'    },
-  { key: 'view_admin',       label: 'Access Admin Panel'},
-  { key: 'rename_rooms',     label: 'Rename Zones/Rooms'},
+  { key: 'view_floor_map',    label: 'View Floor Map'       },
+  { key: 'book_seats',        label: 'Book Seats'           },
+  { key: 'view_my_bookings',  label: 'View My Bookings'     },
+  { key: 'view_analytics',    label: 'View Analytics'       },
+  { key: 'view_admin',        label: 'Access Admin Panel'   },
+  { key: 'rename_rooms',      label: 'Rename Zones/Rooms'   },
+  { key: 'cancel_bookings',   label: 'Cancel Others Bookings'},
 ] as const
 export type PermissionKey = typeof PERMISSIONS[number]['key']
 

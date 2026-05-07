@@ -98,6 +98,11 @@ export default function MyTeamPage() {
   const [csvFileName, setCsvFileName] = useState('')
   const [importing, setImporting]     = useState(false)
   const [importResult, setImportResult] = useState<{ added: number; skipped: number } | null>(null)
+  // Delete confirmation
+  const [deleteConfirm, setDeleteConfirm] = useState<{ ids: string[]; names: string[] } | null>(null)
+  const [deleting, setDeleting]           = useState(false)
+  // Multi-select
+  const [selectedIds, setSelectedIds]     = useState<Set<string>>(new Set())
 
   useEffect(() => { if (!authLoading && !user) router.replace('/') }, [user, authLoading])
   useEffect(() => { if (user) fetchMembers() }, [user])
@@ -135,11 +140,18 @@ export default function MyTeamPage() {
     setSaving(false)
   }
 
-  async function handleDelete(id: string, name: string) {
-    if (!confirm(`Remove ${name} from your team list?`)) return
-    await supabase.from('team_members').delete().eq('id', id).eq('owner_id', user!.id)
-    setMembers(prev => prev.filter(m => m.id !== id))
-    flash(`${name} removed`)
+  async function confirmDelete() {
+    if (!deleteConfirm) return
+    setDeleting(true)
+    await supabase.from('team_members').delete().in('id', deleteConfirm.ids).eq('owner_id', user!.id)
+    setMembers(prev => prev.filter(m => !deleteConfirm.ids.includes(m.id)))
+    setSelectedIds(new Set())
+    flash(`${deleteConfirm.ids.length === 1 ? deleteConfirm.names[0] : `${deleteConfirm.ids.length} members`} removed`)
+    setDeleting(false); setDeleteConfirm(null)
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n })
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -368,6 +380,14 @@ export default function MyTeamPage() {
               <input placeholder="Search by name or EMP ID…" value={search} onChange={e => setSearch(e.target.value)}
                 style={{ ...inp, flex: 1, minWidth: 200, padding: '7px 12px', fontSize: 12 }} />
             )}
+            {selectedIds.size > 0 && (
+              <button onClick={() => {
+                const sel = members.filter(m => selectedIds.has(m.id))
+                setDeleteConfirm({ ids: sel.map(m => m.id), names: sel.map(m => m.emp_name) })
+              }} style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 5, padding: '6px 14px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: 700 }}>
+                🗑 Remove {selectedIds.size} Selected
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -382,7 +402,14 @@ export default function MyTeamPage() {
             <div style={{ padding: 32, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No members match "{search}"</div>
           ) : (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 140px 180px', padding: '8px 22px', background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '40px 56px 1fr 140px 180px', padding: '8px 22px', background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center' }}>
+                  <input type="checkbox"
+                    checked={selectedIds.size === filtered.length && filtered.length > 0}
+                    ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && selectedIds.size < filtered.length }}
+                    onChange={e => e.target.checked ? setSelectedIds(new Set(filtered.map(m => m.id))) : setSelectedIds(new Set())}
+                    style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#dc2626' }} />
+                </div>
                 {['', 'Name', 'EMP ID', 'Actions'].map(h => (
                   <div key={h} style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</div>
                 ))}
@@ -413,7 +440,9 @@ export default function MyTeamPage() {
                       </div>
                     </div>
                   ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: '56px 1fr 140px 180px', alignItems: 'center', padding: '12px 22px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '40px 56px 1fr 140px 180px', alignItems: 'center', padding: '12px 22px' }}>
+                      <input type="checkbox" checked={selectedIds.has(m.id)} onChange={() => toggleSelect(m.id)}
+                        style={{ width: 15, height: 15, cursor: 'pointer', accentColor: '#dc2626' }} />
                       <div style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--brand-pale)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 800, color: 'var(--brand)' }}>
                         {m.emp_name.charAt(0).toUpperCase()}
                       </div>
@@ -427,7 +456,7 @@ export default function MyTeamPage() {
                           style={{ padding: '5px 14px', borderRadius: 7, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', color: 'var(--ink-700)', fontWeight: 600 }}>
                           ✏️ Edit
                         </button>
-                        <button onClick={() => handleDelete(m.id, m.emp_name)}
+                        <button onClick={() => setDeleteConfirm({ ids: [m.id], names: [m.emp_name] })}
                           style={{ padding: '5px 14px', borderRadius: 7, border: '1px solid var(--danger-border)', background: 'var(--danger-bg)', color: 'var(--danger)', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', fontWeight: 600 }}>
                           🗑 Remove
                         </button>
@@ -444,6 +473,41 @@ export default function MyTeamPage() {
           💡 These members appear in the seat assignment dropdown on the Book Seat page. Only you can see your list.
         </div>
       </div>
+
+      {/* Delete confirmation dialog */}
+      {deleteConfirm && (
+        <div onClick={() => !deleting && setDeleteConfirm(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card-bg)', borderRadius: 18, width: '100%', maxWidth: 420, boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px 14px', borderBottom: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ width: 42, height: 42, borderRadius: 12, background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: 20 }}>🗑</div>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink-900)' }}>
+                  Remove {deleteConfirm.ids.length === 1 ? 'Member' : `${deleteConfirm.ids.length} Members`}?
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>They will be removed from your team list</div>
+              </div>
+            </div>
+            <div style={{ padding: '14px 22px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5, maxHeight: 180, overflowY: 'auto' }}>
+                {deleteConfirm.names.map((name, i) => (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px', borderRadius: 8, background: 'var(--muted-bg)', border: '1px solid var(--card-border)', fontSize: 13 }}>
+                    <div style={{ width: 28, height: 28, borderRadius: 7, background: '#fee2e2', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 800, color: '#dc2626', flexShrink: 0 }}>{name.charAt(0)}</div>
+                    <span style={{ color: 'var(--ink-900)', fontWeight: 600 }}>{name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div style={{ padding: '14px 22px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteConfirm(null)} disabled={deleting} style={{ padding: '8px 18px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--muted-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, color: 'var(--ink-700)' }}>
+                Keep
+              </button>
+              <button onClick={confirmDelete} disabled={deleting} style={{ padding: '8px 18px', borderRadius: 9, border: 'none', background: '#dc2626', color: '#fff', cursor: deleting ? 'wait' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+                {deleting ? 'Removing…' : `Remove${deleteConfirm.ids.length > 1 ? ` ${deleteConfirm.ids.length}` : ''}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

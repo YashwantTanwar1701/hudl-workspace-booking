@@ -32,7 +32,8 @@ const TH_ROWS: number[] = (() => {
   const arr: number[] = []
   for (let c = 1; c <= 20; c++) {
     if (c === 1) arr.push(7)
-    else if ([2, 3, 4, 15, 16, 17, 18, 19, 20].includes(c)) arr.push(8)
+    else if (c === 19) arr.push(7)                          // was 8, col19 row1 removed
+    else if ([2, 3, 4, 15, 16, 17, 18, 20].includes(c)) arr.push(8)
     else if ([5, 6].includes(c)) arr.push(7)
     else arr.push(6)
   }
@@ -97,7 +98,7 @@ export const LANES: LaneSpec[] = [
     id: 'th',
     prefix: 'THL',
     title: 'Town Hall Lane',
-    subtitle: '20 columns · variable rows (read bottom-up) · 141 seats · 2-col bands',
+    subtitle: '20 columns · variable rows (read bottom-up) · 140 seats · 2-col bands',
     icon: '🏢',
     sectionId: 'town-hall-lane',
     roomId: 2,
