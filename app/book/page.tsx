@@ -1,12 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Apple, Monitor, Calendar, Clock, Filter,
   ShoppingCart, Trash2, Zap, CheckCircle2, Lock,
   Moon, Info, Users, LayoutGrid, RefreshCw,
-  AlertTriangle, X, Heart,
+  AlertTriangle, X, Heart, DoorOpen, Clock3,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import ShiftPicker from '../components/ShiftPicker'
@@ -58,6 +58,151 @@ function fmtDur(mins: number) {
 function addDays(iso: string, n: number) {
   const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n)
   return d.toISOString().split('T')[0]
+}
+
+/* ─── Hover info tooltip for room approval notice ─── */
+function RoomInfoTooltip({ message }: { message: string }) {
+  const [visible, setVisible] = React.useState(false)
+  return (
+    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center' }}>
+      <span
+        onMouseEnter={() => setVisible(true)}
+        onMouseLeave={() => setVisible(false)}
+        style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          fontSize: 10, color: '#92400e', background: '#fffbeb',
+          border: '1px solid #fde68a', borderRadius: 99,
+          padding: '2px 7px', cursor: 'default', userSelect: 'none',
+          fontWeight: 700, whiteSpace: 'nowrap',
+        }}
+      >
+        <Clock3 size={9} /> Approval required
+        <Info size={9} style={{ opacity: 0.55 }} />
+      </span>
+      {visible && (
+        <span style={{
+          position: 'absolute',
+          top: 'calc(100% + 6px)',   // below the pill, not above
+          left: 0,
+          background: '#1e293b', color: '#f1f5f9',
+          fontSize: 11, lineHeight: 1.55,
+          padding: '8px 11px', borderRadius: 9,
+          boxShadow: '0 6px 20px rgba(0,0,0,0.35)',
+          whiteSpace: 'normal', width: 230,
+          zIndex: 9999, pointerEvents: 'none',
+        }}>
+          {/* Arrow pointing up */}
+          <span style={{ position: 'absolute', top: -4, left: 14, width: 8, height: 8, background: '#1e293b', transform: 'rotate(45deg)' }} />
+          {message}
+        </span>
+      )}
+    </span>
+  )
+}
+
+/* ─── Room Booking Card (single-unit room tile, requires approval) ─── */
+function RoomBookingCard({
+  lane, dbSeats, bookedIds, myIds, selectedIds, onToggle,
+  highlighted, cardRef, roomNames, requiresApproval,
+}: {
+  lane: LaneSpec
+  dbSeats: Seat[]
+  bookedIds: Set<string>
+  myIds: Set<string>
+  selectedIds: Set<string>
+  onToggle: (seat: Seat) => void
+  highlighted: boolean
+  cardRef: (el: HTMLDivElement | null) => void
+  roomNames: Record<number, string>
+  requiresApproval: boolean
+}) {
+  const { theme } = useTheme()
+  const cardBg = theme === 'dark' ? lane.darkBgColor : lane.bgColor
+  const seat = dbSeats[0] ?? null
+  const isSelected = seat ? selectedIds.has(seat.id) : false
+  const isBooked = seat ? bookedIds.has(seat.id) : false
+  const isMine = seat ? myIds.has(seat.id) : false
+  const isInactive = seat ? !seat.is_active : true
+
+  let statusColor = '#16a34a'
+  let statusLabel = 'Available'
+  if (isInactive) { statusColor = '#94a3b8'; statusLabel = 'Unavailable' }
+  else if (isMine) { statusColor = '#7c3aed'; statusLabel = 'Your Booking' }
+  else if (isBooked) { statusColor = '#dc2626'; statusLabel = 'Booked' }
+  else if (isSelected) { statusColor = '#2563eb'; statusLabel = 'Selected' }
+
+  const canBook = seat && !isInactive && !isBooked
+  const name = lane.roomId != null ? (roomNames[lane.roomId] || lane.title) : lane.title
+
+  return (
+    <div
+      ref={cardRef}
+      className={highlighted ? 'seat-card-highlighted' : ''}
+      style={{
+        background: 'var(--card-bg)',
+        border: `1.5px solid ${isSelected ? lane.accentColor : '#e2e8f0'}`,
+        borderRadius: 14,
+        overflow: 'hidden',
+        boxShadow: isSelected ? `0 0 0 3px ${lane.accentColor}22` : '0 1px 4px rgba(0,0,0,0.05)',
+        transition: 'all 0.2s',
+        scrollMarginTop: 240,
+      }}
+    >
+      {/* Accent top bar */}
+      <div style={{ height: 4, background: lane.accentColor }} />
+
+      {/* Header: icon · name + approval pill + selected badge · status */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px 10px', background: cardBg, borderBottom: `1px solid ${lane.accentColor}33` }}>
+        <div style={{ width: 36, height: 36, borderRadius: 9, background: 'var(--card-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 1px 4px rgba(0,0,0,0.1)', color: lane.accentColor }}>
+          <DoorOpen size={18} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-900)' }}>{name}</span>
+            {/* Approval tooltip pill — right after the room name */}
+            {requiresApproval && (
+              <RoomInfoTooltip message="Booking this room requires admin approval. Your request will be queued and you'll be notified once reviewed." />
+            )}
+            {isSelected && (
+              <span style={{ fontSize: 11, fontWeight: 700, padding: '1px 8px', borderRadius: 99, background: lane.accentColor, color: '#fff' }}>Selected</span>
+            )}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{lane.subtitle}</div>
+        </div>
+        <div style={{ flexShrink: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: statusColor }}>{statusLabel}</span>
+        </div>
+      </div>
+
+      {/* Body: centered SVG tile only */}
+      <div style={{ padding: '18px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+        <div
+          onClick={() => canBook && seat && onToggle(seat)}
+          title={!seat ? 'No seat configured in DB for this room' : canBook ? `Click to ${isSelected ? 'deselect' : 'book'} ${name}` : undefined}
+          style={{
+            width: 88, height: 88, borderRadius: 14,
+            border: `2px solid ${isSelected ? lane.accentColor : isMine ? '#a78bfa' : isBooked ? '#fca5a5' : isInactive ? '#e2e8f0' : lane.accentColor + '66'}`,
+            background: isSelected ? `${lane.accentColor}18` : isMine ? '#faf5ff' : isBooked ? '#fef2f2' : isInactive ? '#f8fafc' : `${lane.accentColor}0d`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: canBook ? 'pointer' : 'default',
+            transition: 'all 0.15s',
+            boxShadow: isSelected ? `0 0 0 3px ${lane.accentColor}33` : 'none',
+          }}
+        >
+          {isSelected
+            ? <CheckCircle2 size={40} color={lane.accentColor} />
+            : isBooked
+              ? <Lock size={34} color="#fca5a5" />
+              : isMine
+                ? <CheckCircle2 size={40} color="#7c3aed" />
+                : !seat
+                  ? <span style={{ fontSize: 11, color: '#dc2626', textAlign: 'center', padding: 4 }}>No seat in DB</span>
+                  : <DoorOpen size={40} color={isInactive ? '#cbd5e1' : lane.accentColor} style={{ opacity: isInactive ? 0.45 : 1 }} />
+          }
+        </div>
+      </div>
+    </div>
+  )
 }
 
 /* ─── Lane card with selectable seats (booking-flavor) ─── */
@@ -744,7 +889,7 @@ function TeamMemberManager({ userId, onClose }: {
 
 /* ─── Main ─── */
 function BookInner() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const router = useRouter()
   const today = new Date().toLocaleDateString('en-CA')
 
@@ -767,6 +912,7 @@ function BookInner() {
   const [loadingBks, setLoadingBks] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
+  const [successHasApproval, setSuccessHasApproval] = useState(false)
   const [error, setError] = useState('')
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [wellnessConfirmOpen, setWellnessConfirmOpen] = useState(false)
@@ -789,6 +935,13 @@ function BookInner() {
     // Fetch all initial data in parallel — prevents flicker from staged renders
     Promise.all([fetchSeats(), fetchRooms(), fetchDepts(), fetchTeamMembers(), fetchBookings()])
   }, [])
+
+  // Auto-fill default department from user profile
+  useEffect(() => {
+    if (profile?.default_department_id && departmentId === null) {
+      setDepartmentId(profile.default_department_id)
+    }
+  }, [profile])
 
   // Refetch bookings when date/time changes — uses date columns, no timestamp comparison
   useEffect(() => {
@@ -820,6 +973,19 @@ function BookInner() {
   async function fetchRooms() {
     const { data } = await supabase.from('room').select('*')
     if (data) setRoomMap(buildRoomMap(data as Room[]))
+  }
+
+  // Helper: check if a lane's room requires approval based on DB or lane spec
+  function laneNeedsApproval(lane: LaneSpec): boolean {
+    if (lane.requiresApproval) return true
+    if (lane.roomId != null && roomMap[lane.roomId]?.requires_approval) return true
+    return false
+  }
+
+  function laneIsRoomBooking(lane: LaneSpec): boolean {
+    if (lane.isRoomBooking) return true
+    if (lane.roomId != null && roomMap[lane.roomId]?.is_room_booking) return true
+    return false
   }
 
   async function fetchDepts() {
@@ -891,19 +1057,34 @@ function BookInner() {
     if (!user || selectedIds.size === 0) return
     // Validate every selected seat has a name
     const sel = seats.filter(s => selectedIds.has(s.id))
-    const missing = sel.filter(s => !bookedForMap[s.id]?.trim())
+    // Skip member check for room-booking lanes
+    const missing = sel.filter(s => {
+      const _lane = LANES.find(l => l.roomId != null && l.roomId === s.room_id)
+      const _isRmBk = _lane?.isRoomBooking || (s.room_id != null && roomMap[s.room_id]?.is_room_booking)
+      return !_isRmBk && !bookedForMap[s.id]?.trim()
+    })
     if (missing.length > 0) {
       setError(`Please assign a team member to every seat (${missing.length} seat${missing.length > 1 ? 's' : ''} missing).`)
       return
     }
     setSubmitting(true); setError('')
+    // Auto-assign booked_for for room bookings (whole room booked by current user)
+    const enrichedForMap = { ...bookedForMap }
+    sel.forEach(seat => {
+      const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
+      const isRoomBk = lane?.isRoomBooking || (seat.room_id != null && roomMap[seat.room_id]?.is_room_booking)
+      if (isRoomBk && !enrichedForMap[seat.id]?.trim()) {
+        // Use the user's display name (from AuthProvider profile)
+        enrichedForMap[seat.id] = 'Room Booking'
+      }
+    })
+
     const inserts = sel.flatMap(seat => {
-      const bf = bookedForMap[seat.id]?.trim() || ''
-      const base = { booked_for: bf, department_id: departmentId || null, shift_id: selectedShiftId }
+      const bf = enrichedForMap[seat.id]?.trim() || ''
+      const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
+      const needsApproval = (lane?.requiresApproval || (seat.room_id != null && roomMap[seat.room_id]?.requires_approval)) ?? false
+      const base = { booked_for: bf, department_id: departmentId || null, shift_id: selectedShiftId, approval_status: needsApproval ? 'pending' : null }
       // Single row for both normal and overnight bookings.
-      // For overnight: start_ts = date T startTime, end_ts = endDate T endTime
-      // The no_overlap constraint uses tsrange(start_ts, end_ts) so this correctly
-      // blocks any conflicting booking across the midnight boundary.
       return [{
         user_id: user.id,
         seat_id: seat.id,
@@ -915,9 +1096,13 @@ function BookInner() {
         ...base,
       }]
     })
+    const hasApprovalRequired = sel.some(seat => {
+      const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
+      return lane?.requiresApproval || (seat.room_id != null && roomMap[seat.room_id]?.requires_approval)
+    })
     const { error: err } = await supabase.from('bookings').insert(inserts)
     if (err) setError(err.message.includes('overlap') ? 'One or more seats conflict with existing bookings.' : err.message)
-    else { setSuccess(true); setConfirmOpen(false); setWellnessConfirmOpen(false); setSelectedIds(new Set()); setBookedForMap({}); setDepartmentId(null); await fetchBookings() }
+    else { setSuccess(true); setSuccessHasApproval(hasApprovalRequired); setConfirmOpen(false); setWellnessConfirmOpen(false); setSelectedIds(new Set()); setBookedForMap({}); setDepartmentId(profile?.default_department_id ?? null); await fetchBookings() }
     setSubmitting(false)
   }
 
@@ -952,21 +1137,36 @@ function BookInner() {
   const totalAvail = seats.filter(s => !bookedIds.has(s.id) && s.is_active).length
   const dur = fmtDur(minutesBetween(effectiveStart, effectiveEndTime, isOvernight))
   const selectedSeatList = seats.filter(s => selectedIds.has(s.id))
-  const allSeatsNamed = selectedSeatList.length > 0 && selectedSeatList.every(s => bookedForMap[s.id]?.trim())
+  const allSeatsNamed = selectedSeatList.length > 0 && selectedSeatList.every(s => {
+    const lane = LANES.find(l => l.roomId != null && l.roomId === s.room_id)
+    const isRoomBk = lane?.isRoomBooking || (s.room_id != null && roomMap[s.room_id]?.is_room_booking)
+    return isRoomBk || bookedForMap[s.id]?.trim()
+  })
   // Detect duplicate names — same team member assigned to more than one seat
   const usedNames = selectedSeatList.map(s => bookedForMap[s.id]?.trim()).filter(Boolean)
   const duplicateNames = usedNames.filter((name, idx) => usedNames.indexOf(name) !== idx)
   const hasDuplicates = duplicateNames.length > 0
-  const canBook = selectedIds.size > 0 && allSeatsNamed && departmentId !== null && !hasDuplicates
+  const canBook = selectedIds.size > 0 && allSeatsNamed && !hasDuplicates
 
   if (success) return (
     <div style={{ minHeight: '80vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <div style={{ textAlign: 'center', maxWidth: 380 }}>
-        <div style={{ width: 72, height: 72, borderRadius: '50%', background: '#d1fae5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}><CheckCircle2 size={36} color="#059669" /></div>
-        <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 8 }}>All Booked!</h2>
-        <p style={{ color: 'var(--muted)', marginBottom: 24 }}>Your reservation is confirmed.</p>
+      <div style={{ textAlign: 'center', maxWidth: 420 }}>
+        <div style={{ width: 72, height: 72, borderRadius: '50%', background: successHasApproval ? '#fef3c7' : '#d1fae5', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px' }}>
+          {successHasApproval ? <Clock3 size={36} color="#d97706" /> : <CheckCircle2 size={36} color="#059669" />}
+        </div>
+        <h2 style={{ fontSize: 24, fontWeight: 700, color: 'var(--ink-900)', marginBottom: 8 }}>
+          {successHasApproval ? 'Booking Requested!' : 'All Booked!'}
+        </h2>
+        <p style={{ color: 'var(--muted)', marginBottom: successHasApproval ? 12 : 24 }}>
+          {successHasApproval ? 'Your room booking request has been submitted and is awaiting admin approval.' : 'Your reservation is confirmed.'}
+        </p>
+        {successHasApproval && (
+          <div style={{ padding: '10px 16px', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, fontSize: 12, color: '#92400e', marginBottom: 20, textAlign: 'left', lineHeight: 1.6 }}>
+            ⏳ You'll be notified once the admin reviews your request. Check <strong>My Bookings</strong> for status updates.
+          </div>
+        )}
         <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-          <button onClick={() => setSuccess(false)} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>Book More</button>
+          <button onClick={() => { setSuccess(false); setSuccessHasApproval(false) }} style={{ padding: '9px 18px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>Book More</button>
           <button onClick={() => router.push('/my-bookings')} style={{ padding: '9px 18px', borderRadius: 9, border: 'none', background: '#1e3a5f', color: '#fff', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 600 }}>My Bookings →</button>
         </div>
       </div>
@@ -1040,22 +1240,55 @@ function BookInner() {
 
           {loadingSeats ? (
             [1,2,3].map(i => <div key={i} style={{ height: 100, borderRadius: 14, background: 'var(--page-bg)' }} />)
-          ) : LANES.map(lane => (
-            <LaneBookingCard
-              key={lane.id}
-              lane={lane}
-              roomNames={roomNames}
-              dbSeats={seatsByLane[lane.id] || []}
-              bookedIds={bookedIds}
-              myIds={myIds}
-              selectedIds={selectedIds}
-              onToggle={toggleSeat}
-              bookings={bookings}
-              filterOs={filterOs}
-              highlighted={highlightedLaneId === lane.id}
-              cardRef={setLaneRef(lane.id)}
-            />
-          ))}
+          ) : (() => {
+            let shownApprovalDivider = false
+            return LANES.map(lane => {
+              const isRoomBk = laneIsRoomBooking(lane)
+              const needsApproval = laneNeedsApproval(lane)
+              const divider = needsApproval && !shownApprovalDivider ? (
+                <div key="approval-divider" style={{ display: 'flex', alignItems: 'center', gap: 12, margin: '8px 0 4px', userSelect: 'none' }}>
+                  <div style={{ flex: 1, height: 1, background: '#fde68a' }} />
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 12px', borderRadius: 99, background: '#fffbeb', border: '1px solid #fde68a', fontSize: 11, fontWeight: 700, color: '#92400e', whiteSpace: 'nowrap' }}>
+                    <Clock3 size={11} /> Rooms Requiring Approval
+                  </div>
+                  <div style={{ flex: 1, height: 1, background: '#fde68a' }} />
+                </div>
+              ) : null
+              if (needsApproval) shownApprovalDivider = true
+
+              const card = isRoomBk ? (
+                <RoomBookingCard
+                  key={lane.id}
+                  lane={lane}
+                  roomNames={roomNames}
+                  dbSeats={seatsByLane[lane.id] || []}
+                  bookedIds={bookedIds}
+                  myIds={myIds}
+                  selectedIds={selectedIds}
+                  onToggle={toggleSeat}
+                  highlighted={highlightedLaneId === lane.id}
+                  cardRef={setLaneRef(lane.id)}
+                  requiresApproval={needsApproval}
+                />
+              ) : (
+                <LaneBookingCard
+                  key={lane.id}
+                  lane={lane}
+                  roomNames={roomNames}
+                  dbSeats={seatsByLane[lane.id] || []}
+                  bookedIds={bookedIds}
+                  myIds={myIds}
+                  selectedIds={selectedIds}
+                  onToggle={toggleSeat}
+                  bookings={bookings}
+                  filterOs={filterOs}
+                  highlighted={highlightedLaneId === lane.id}
+                  cardRef={setLaneRef(lane.id)}
+                />
+              )
+              return divider ? [divider, card] : card
+            })
+          })()}
         </div>
 
         {/* Cart sidebar */}
@@ -1080,6 +1313,8 @@ function BookInner() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {seats.filter(s => selectedIds.has(s.id)).map(seat => {
                     const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
+                    const isRoomBk = lane?.isRoomBooking || (seat.room_id != null && roomMap[seat.room_id]?.is_room_booking)
+                    const needsApprovalForSeat = lane?.requiresApproval || (seat.room_id != null && roomMap[seat.room_id]?.requires_approval)
                     const val = bookedForMap[seat.id] || ''
                     const hasName = val.trim().length > 0
                     // Names assigned to OTHER seats (to detect duplicates for this seat)
@@ -1089,7 +1324,7 @@ function BookInner() {
                       .filter(Boolean)
                     const isDuplicate = hasName && otherNames.includes(val.trim())
                     const sorted = [...teamMembers].sort((a, b) => a.emp_name.localeCompare(b.emp_name))
-                    const borderColor = isDuplicate ? '#f59e0b' : hasName ? 'var(--card-border)' : '#fca5a5'
+                    const borderColor = isRoomBk ? (needsApprovalForSeat ? '#fde68a' : 'var(--card-border)') : isDuplicate ? '#f59e0b' : hasName ? 'var(--card-border)' : '#fca5a5'
                     return (
                       <div key={seat.id} style={{ background: 'var(--muted-bg)', border: `1.5px solid ${borderColor}`, borderRadius: 10, padding: '9px 10px' }}>
                         {/* Seat header */}
@@ -1106,7 +1341,19 @@ function BookInner() {
                           </div>
                           <button onClick={() => { toggleSeat(seat); setBookedForMap(p => { const n = { ...p }; delete n[seat.id]; return n }) }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-300)', padding: 2 }}><Trash2 size={11} /></button>
                         </div>
-                        {/* Per-seat member dropdown */}
+                        {/* Per-seat member dropdown — or room booking notice */}
+                        {isRoomBk ? (
+                          <div>
+                            <div style={{ fontSize: 11, color: 'var(--muted)', padding: '5px 0', lineHeight: 1.5 }}>
+                              <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><DoorOpen size={11} /> Booking entire room</span>
+                            </div>
+                            {needsApprovalForSeat && (
+                              <div style={{ fontSize: 10, color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 5, padding: '3px 7px', marginTop: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <Clock3 size={9} /> Pending admin approval
+                              </div>
+                            )}
+                          </div>
+                        ) : (
                         <div>
                           <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 3, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                             Seat User <span style={{ color: '#dc2626' }}>*</span>
@@ -1140,6 +1387,7 @@ function BookInner() {
                             </div>
                           )}
                         </div>
+                        )}
                       </div>
                     )
                   })}
@@ -1155,20 +1403,21 @@ function BookInner() {
                   <span>Seats</span><span>{selectedIds.size}</span>
                 </div>
 
-                {/* Department — mandatory, applies to all seats */}
-                <div>
-                  <label style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                    Department <span style={{ color: '#dc2626' }}>*</span>
-                  </label>
-                  <select
-                    value={departmentId ?? ''}
-                    onChange={e => setDepartmentId(e.target.value ? parseInt(e.target.value) : null)}
-                    style={{ width: '100%', padding: '7px 9px', borderRadius: 7, border: `1.5px solid ${departmentId ? 'var(--card-border)' : '#fca5a5'}`, background: 'var(--muted-bg)', color: 'var(--ink-900)', fontSize: 12, fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' as const, colorScheme: 'light dark' as const }}
-                  >
-                    <option value="">Select department…</option>
-                    {departments.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
-                  </select>
-                </div>
+                {/* Department — auto-filled from profile, read-only in cart */}
+                {departmentId && (() => {
+                  const dept = departments.find(d => d.id === departmentId)
+                  return dept ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 9px', background: 'var(--muted-bg)', border: '1px solid var(--card-border)', borderRadius: 7 }}>
+                      <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Dept:</span>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-900)', flex: 1 }}>{dept.name}</span>
+                    </div>
+                  ) : null
+                })()}
+                {!departmentId && (
+                  <div style={{ padding: '7px 10px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 7, fontSize: 11, color: '#dc2626' }}>
+                    ⚠ No department set. <a href="/settings" style={{ color: '#dc2626', fontWeight: 700 }}>Update in Settings →</a>
+                  </div>
+                )}
 
                 {/* Manage team members link */}
                 <button onClick={() => setShowTmManager(true)} style={{ fontSize: 11, background: 'none', border: '1px dashed var(--card-border)', borderRadius: 7, padding: '5px 10px', cursor: 'pointer', color: 'var(--muted)', fontFamily: 'inherit', textAlign: 'left' }}>
@@ -1196,7 +1445,7 @@ function BookInner() {
                 </button>
                 {!canBook && selectedIds.size > 0 && (
                   <div style={{ fontSize: 11, color: '#dc2626', textAlign: 'center' }}>
-                    {hasDuplicates ? '⚠️ Each seat must have a different person' : !departmentId ? 'Select a department' : !allSeatsNamed ? 'Assign a member to each seat' : ''}
+                    {hasDuplicates ? '⚠️ Each seat must have a different person' : !allSeatsNamed ? 'Assign a member to each seat' : ''}
                   </div>
                 )}
                 <button onClick={() => { setSelectedIds(new Set()); setBookedForMap({}) }} style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>

@@ -32,6 +32,7 @@ export const PERMISSIONS = [
   { key: 'view_admin',        label: 'Access Admin Panel'   },
   { key: 'rename_rooms',      label: 'Rename Zones/Rooms'   },
   { key: 'cancel_bookings',   label: 'Cancel Others Bookings'},
+  { key: 'approve_bookings',  label: 'Approve Room Bookings'},
 ] as const
 export type PermissionKey = typeof PERMISSIONS[number]['key']
 
@@ -42,6 +43,8 @@ export interface Room {
   name: string
   capacity: number
   status: boolean
+  requires_approval: boolean   // admin must approve bookings for this room
+  is_room_booking: boolean     // entire room booked as a single unit
 }
 
 /* ─── Seat ─── */
@@ -87,6 +90,11 @@ export interface Booking {
   shift_id: number | null
   booked_for: string | null
   department_id: number | null
+  // approval fields (null = not required; 'pending'|'approved'|'rejected' = room requires approval)
+  approval_status: 'pending' | 'approved' | 'rejected' | null
+  reviewed_by: string | null
+  reviewed_at: string | null
+  review_note: string | null
   seat?: Seat
   user?: UserProfile
   shift?: Shift
@@ -100,6 +108,7 @@ export interface UserProfile {
   email: string | null
   role: UserRole
   created_at: string
+  default_department_id: number | null   // user's pre-selected default department
 }
 
 /* ─── Floor Sections metadata ─── */

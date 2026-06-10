@@ -17,6 +17,7 @@ export default function Navbar() {
     { href: '/my-bookings', label: 'My Bookings', icon: ClipboardList },
   { href: '/my-team', label: 'My Team', icon: Users },
     { href: '/dashboard',   label: 'Analytics',   icon: BarChart2    },
+    { href: '/settings', label: 'Settings', icon: Settings },
     ...(isAdmin ? [{ href: '/admin', label: 'Admin', icon: Settings }] : []),
   ]
 

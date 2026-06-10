@@ -116,15 +116,29 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings, isAdmin, ro
       <div style={{ fontSize: 12, fontWeight: 700, color: statusColor, marginBottom: freeFrom ? 6 : 8 }}>{statusLabel}</div>
       {isInactive && seat.notes && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 4 }}>📝 {seat.notes}</div>}
       {freeFrom && <div style={{ fontSize: 11, color: '#fbbf24', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4 }}><Clock size={10} /> {freeFrom}</div>}
-      {(isAdmin || isMine) && currentBk && (currentBk as any).booked_for && (() => {
-        const bf: string = (currentBk as any).booked_for
-        const match = bf.match(/^(.+?)\s*\[(.+?)\]$/)
-        const name = match ? match[1] : bf
-        const empId = match ? match[2] : null
+      {currentBk && (() => {
+        // Show the BOOKER (team lead who created the booking) — b.user.name
+        const bookerName = (currentBk as any).user?.name || (currentBk as any).user?.email || null
+        // Also show the booked_for (analyst) for admins
+        const bookedFor: string | null = (currentBk as any).booked_for || null
+        const bfMatch = bookedFor ? bookedFor.match(/^(.+?)\s*\[(.+?)\]$/) : null
+        const analystName = bfMatch ? bfMatch[1] : bookedFor
+        const empId = bfMatch ? bfMatch[2] : null
+
         return (
-          <div style={{ fontSize: 11, color: '#93c5fd', marginBottom: 6, display: 'flex', flexDirection: 'column', gap: 2 }}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>👤 {name}</span>
-            {isAdmin && empId && <span style={{ fontFamily: 'monospace', color: '#7dd3fc', fontSize: 10, paddingLeft: 16 }}>EMP ID: {empId}</span>}
+          <div style={{ fontSize: 11, color: '#93c5fd', marginBottom: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+            {bookerName && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontWeight: 600 }}>
+                👤 {bookerName}
+                <span style={{ fontSize: 10, color: '#7dd3fc', fontWeight: 400 }}>· booked by</span>
+              </span>
+            )}
+            {isAdmin && analystName && analystName !== 'Room Booking' && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 4, color: '#93c5fd', paddingLeft: 4 }}>
+                🪑 {analystName}
+                {empId && <span style={{ fontFamily: 'monospace', color: '#7dd3fc', fontSize: 10 }}>[{empId}]</span>}
+              </span>
+            )}
           </div>
         )
       })()}
@@ -135,7 +149,7 @@ function SeatTip({ seat, lane, windowBooked, isMine, allDayBookings, isAdmin, ro
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 10, color: '#fca5a5', marginBottom: 3 }}>
               <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#ef4444', flexShrink: 0 }} />
               {b.start_time.slice(0, 5)} – {b.end_time.slice(0, 5)}
-              {isAdmin && (b as any).booked_for && <span style={{ color: '#93c5fd', marginLeft: 4 }}>· {(b as any).booked_for}</span>}
+              {(b as any).user?.name && <span style={{ color: '#93c5fd', marginLeft: 4 }}>· {(b as any).user.name}</span>}
             </div>
           ))}
         </div>
@@ -209,11 +223,11 @@ export default function SeatLayoutPage() {
     const isNightWindow = endTime < startTime  // e.g. 23:00 → 07:00
 
     Promise.all([
-      // Bookings starting on this date
-      supabase.from('bookings').select('*').eq('status', 'active').eq('booking_date', date),
+      // Bookings starting on this date — join user so we can show booker name
+      supabase.from('bookings').select('*, user:users(id,name,email)').eq('status', 'active').eq('booking_date', date),
       // Overnight bookings that STARTED yesterday and end today
       // (their end_date = today)
-      supabase.from('bookings').select('*').eq('status', 'active').eq('end_date', date).eq('is_overnight', true),
+      supabase.from('bookings').select('*, user:users(id,name,email)').eq('status', 'active').eq('end_date', date).eq('is_overnight', true),
     ]).then(([startRes, endRes]) => {
       const startDay = (startRes.data ?? []) as Booking[]
       const endDay   = (endRes.data ?? []) as Booking[]

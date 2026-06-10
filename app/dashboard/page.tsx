@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
@@ -146,12 +146,48 @@ function DayHeatmap({ data }: { data: Record<string, number> }) {
   )
 }
 
+
+// ─── Sortable table utility ───
+function useSortTable<T>(data: T[]) {
+  const [sortKey, setSortKey] = React.useState('')
+  const [sortDir, setSortDir] = React.useState<'asc'|'desc'>('asc')
+  function onSort(k: string) { if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc'); else { setSortKey(k); setSortDir('asc') } }
+  const sorted = React.useMemo(() => {
+    if (!sortKey) return data
+    return [...data].sort((a: any, b: any) => {
+      const av = String(a[sortKey] ?? '').toLowerCase(), bv = String(b[sortKey] ?? '').toLowerCase()
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [data, sortKey, sortDir])
+  const thStyle = (k: string): React.CSSProperties => ({ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: sortKey === k ? '#2563eb' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' })
+  const arrow = (k: string) => sortKey === k ? (sortDir === 'asc' ? ' ↑' : ' ↓') : ' ↕'
+  return { sorted, thStyle, arrow }
+}
+
 export default function DashboardPage() {
   const { user, profile, loading: authLoading } = useAuth()
   const router = useRouter()
   const isAdmin = profile?.role === 'admin'
 
   const [bookings, setBookings] = useState<BFull[]>([])
+  const [bkTableSort, setBkTableSort] = useState({ key: '', dir: 'asc' as 'asc'|'desc' })
+  const [userTableSort, setUserTableSort] = useState({ key: '', dir: 'asc' as 'asc'|'desc' })
+  function tableSort<T>(data: T[], s: { key: string; dir: 'asc'|'desc' }): T[] {
+    if (!s.key) return data
+    return [...data].sort((a: any, b: any) => {
+      const av = String(a[s.key] ?? '').toLowerCase(), bv = String(b[s.key] ?? '').toLowerCase()
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return s.dir === 'asc' ? cmp : -cmp
+    })
+  }
+  function sortToggle(key: string, state: { key: string; dir: 'asc'|'desc' }, setter: React.Dispatch<React.SetStateAction<{ key: string; dir: 'asc'|'desc' }>>) {
+    setter(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
+  }
+  function thS(key: string, state: { key: string; dir: 'asc'|'desc' }): React.CSSProperties {
+    return { padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: state.key === key ? '#2563eb' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }
+  }
+  function arrD(key: string, state: { key: string; dir: 'asc'|'desc' }) { return state.key === key ? (state.dir === 'asc' ? ' ↑' : ' ↓') : ' ↕' }
   const [allBookings, setAllBookings] = useState<BFull[]>([])
   const [rooms, setRooms] = useState<Room[]>([])
   const [allUsers, setAllUsers] = useState<UserProfile[]>([])
@@ -397,9 +433,10 @@ export default function DashboardPage() {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                       <thead>
                         <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                          {['#', 'EMP ID', 'Name', 'Bookings'].map(h => (
-                            <th key={h} style={{ padding: '7px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                          ))}
+                          <th style={{ padding: '7px 12px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>#</th>
+                          <th onClick={() => sortToggle('empId', userTableSort, setUserTableSort)} style={thS('empId', userTableSort)}>EMP ID{arrD('empId', userTableSort)}</th>
+                          <th onClick={() => sortToggle('name', userTableSort, setUserTableSort)} style={thS('name', userTableSort)}>Name{arrD('name', userTableSort)}</th>
+                          <th onClick={() => sortToggle('count', userTableSort, setUserTableSort)} style={thS('count', userTableSort)}>Bookings{arrD('count', userTableSort)}</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -605,13 +642,18 @@ export default function DashboardPage() {
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                   <thead>
                     <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                      {['Date','Seat','Zone','Time','EMP ID','Name','Dept','Status'].map(h => (
-                        <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>{h}</th>
-                      ))}
+                      <th onClick={() => sortToggle('booking_date', bkTableSort, setBkTableSort)} style={thS('booking_date', bkTableSort)}>Date{arrD('booking_date', bkTableSort)}</th>
+                      <th onClick={() => sortToggle('seat_number', bkTableSort, setBkTableSort)} style={thS('seat_number', bkTableSort)}>Seat{arrD('seat_number', bkTableSort)}</th>
+                      <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Zone</th>
+                      <th onClick={() => sortToggle('start_time', bkTableSort, setBkTableSort)} style={thS('start_time', bkTableSort)}>Time{arrD('start_time', bkTableSort)}</th>
+                      <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>EMP ID</th>
+                      <th onClick={() => sortToggle('booked_for', bkTableSort, setBkTableSort)} style={thS('booked_for', bkTableSort)}>Name{arrD('booked_for', bkTableSort)}</th>
+                      <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap' }}>Dept</th>
+                      <th onClick={() => sortToggle('status', bkTableSort, setBkTableSort)} style={thS('status', bkTableSort)}>Status{arrD('status', bkTableSort)}</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {bookings.map((b, i) => (
+                    {tableSort(bookings, bkTableSort).map((b, i) => (
                       <tr key={b.id} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
                         <td style={{ padding: '8px 13px', color: 'var(--ink-700)' }}>{b.booking_date}</td>
                         <td style={{ padding: '8px 13px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--ink-900)' }}>{b.seat?.seat_number || '—'}</td>

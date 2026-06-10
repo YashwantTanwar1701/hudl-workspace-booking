@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
@@ -71,7 +71,6 @@ const ROW_STATUS_META: Record<RowStatus, { bg: string; color: string; label: str
 function parseBookingCSV(
   text: string,
   seatMap: Record<string, string>,        // seat_number → seat_id
-  deptMap: Record<string, number>,        // dept name (lower) → id
   shiftMap: Record<string, Shift>,        // shift name (lower) → shift
   memberMap: Record<string, TeamMember>,  // emp_name (lower) → TeamMember
 ): ParsedBookingRow[] {
@@ -82,18 +81,17 @@ function parseBookingCSV(
 
   return dataLines.filter(l => l.trim()).map((line, idx) => {
     const parts = parseCsvLine(line)
-    // Support both old format (5 cols: Date,Seat,Name,Dept,Shift)
-    // and new format (6 cols: Date,Seat,EmpID,Name,Dept,Shift)
-    let rawDate: string, rawSeat: string, rawEmpId: string, rawName: string, rawDept: string, rawShift: string
+    // Format: Date, Seat Number, EMP ID, Full Name, Shift Name (5 cols — no Department)
+    // Also support legacy 6-col format with Department in col 5 (auto-ignored)
+    let rawDate: string, rawSeat: string, rawEmpId: string, rawName: string, rawShift: string
     if (parts.length >= 6) {
-      // New 6-column format
-      ;[rawDate, rawSeat, rawEmpId, rawName, rawDept, rawShift] = parts.map(p => p.trim())
+      // Legacy 6-col: Date, Seat, EmpID, Name, Dept(ignored), Shift
+      const [d, s, eid, nm, , sh] = parts.map(p => p.trim())
+      rawDate = d; rawSeat = s; rawEmpId = eid; rawName = nm; rawShift = sh
     } else {
-      // Old 5-column format — EmpID may be embedded in name as "Name [ID]"
-      const [d, s, nm, dep, sh] = parts.map(p => p.trim())
-      rawDate = d; rawSeat = s; rawDept = dep; rawShift = sh
-      const match = nm?.match(/^(.+?)\s*\[(.+?)\]$/)
-      rawEmpId = match ? match[2] : ''; rawName = match ? match[1].trim() : (nm ?? '')
+      // Current 5-col: Date, Seat, EmpID, Name, Shift
+      const [d, s, eid, nm, sh] = parts.map(p => p.trim())
+      rawDate = d; rawSeat = s; rawEmpId = eid; rawName = nm; rawShift = sh
     }
     const errors: string[] = []
     let status: RowStatus = 'ok'
@@ -131,10 +129,9 @@ function parseBookingCSV(
       }
     }
 
-    // Department
-    const department_id = rawDept ? (deptMap[rawDept.toLowerCase()] ?? null) : null
-    const department_name = rawDept ?? ''
-    if (rawDept && !department_id) errors.push(`Department "${rawDept}" not found — will be left blank`)
+    // Department comes from user profile at import time — not in CSV
+    const department_id: number | null = null   // filled by handleImport from profile
+    const department_name = ''
 
     // Shift
     const shift = rawShift ? (shiftMap[rawShift.toLowerCase()] ?? null) : null
@@ -172,7 +169,7 @@ function parseBookingCSV(
 }
 
 export default function BulkBookingPage() {
-  const { user, loading: authLoading } = useAuth()
+  const { user, profile, loading: authLoading } = useAuth()
   const router = useRouter()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -222,11 +219,11 @@ export default function BulkBookingPage() {
   })
 
   function downloadTemplate() {
-    // Sheet 1: template (what user fills)
+    // Sheet 1: template (what user fills) — 5 columns, no Department (auto-filled from profile)
     const templateRows = [
-      ['Date (YYYY-MM-DD)', 'Seat Number', 'EMP ID', 'Full Name', 'Department', 'Shift Name'],
-      ['2026-05-10', 'SRL-001', 'E1001', 'John Smith', 'Engineering', 'General Shift'],
-      ['2026-05-10', 'SRL-002', 'E1002', 'Priya Sharma', 'Engineering', 'Night Shift'],
+      ['Date (YYYY-MM-DD)', 'Seat Number', 'EMP ID', 'Full Name', 'Shift Name'],
+      ['2026-05-10', 'SRL-001', 'E1001', 'John Smith', 'General Shift'],
+      ['2026-05-10', 'SRL-002', 'E1002', 'Priya Sharma', 'Night Shift'],
     ]
 
     // Sheet 2: reference data (valid seats)
@@ -238,10 +235,7 @@ export default function BulkBookingPage() {
       ...shifts.map(s => [s.name, s.start_time.slice(0, 5), s.end_time.slice(0, 5), isOvernight(toHHMMSS(s.start_time), toHHMMSS(s.end_time)) ? 'YES' : 'no'])
     ]
 
-    // Sheet 4: departments
-    const deptRefRows = [['Department Name'], ...departments.map(d => [d.name])]
-
-    // Sheet 5: team members (the user's own list)
+    // Sheet 4: team members (the user's own list)
     const memberRefRows = [
       ['EMP ID', 'Full Name'],
       ...members.map(m => [m.emp_id, m.emp_name])
@@ -252,7 +246,6 @@ export default function BulkBookingPage() {
       ['=== BOOKING TEMPLATE (fill this section) ===', ...templateRows.map(r => r.join(','))],
       ['', '=== VALID SEAT NUMBERS ===', ...seatRefRows.map(r => r.join(','))],
       ['', '=== VALID SHIFT NAMES ===', ...shiftRefRows.map(r => r.join(','))],
-      ['', '=== VALID DEPARTMENT NAMES ===', ...deptRefRows.map(r => r.join(','))],
       ['', '=== YOUR TEAM MEMBERS (use EMP ID and Full Name columns) ===', ...memberRefRows.map(r => r.join(','))],
     ]
 
@@ -290,7 +283,7 @@ export default function BulkBookingPage() {
         if (!inRef && line.trim()) dataLines.push(line)
       }
       const cleanText = dataLines.join('\n')
-      setCsvRows(parseBookingCSV(cleanText, seatMap, deptMap, shiftMap, memberMap))
+      setCsvRows(parseBookingCSV(cleanText, seatMap, shiftMap, memberMap))
     }
     reader.readAsText(file)
   }
@@ -312,7 +305,7 @@ export default function BulkBookingPage() {
         user_id: user!.id,
         seat_id: row.seat_id,
         booked_for: row.booked_for,
-        department_id: row.department_id,
+        department_id: profile?.default_department_id ?? null,   // from user profile
         shift_id: row.shift_id,
         status: 'active',
       }
@@ -344,6 +337,19 @@ export default function BulkBookingPage() {
 
   const readyCount   = csvRows.filter(r => r.status === 'ok' || r.status === 'ok_overnight').length
   const invalidCount = csvRows.filter(r => r.status === 'invalid').length
+
+  const [bkSort, setBkSort] = React.useState({ key: '', dir: 'asc' as 'asc'|'desc' })
+  function sortBk<T>(data: T[]) {
+    if (!bkSort.key) return data
+    return [...data].sort((a: any, b: any) => {
+      const av = String(a[bkSort.key] ?? '').toLowerCase(), bv = String(b[bkSort.key] ?? '').toLowerCase()
+      return (bkSort.dir === 'asc' ? 1 : -1) * (av < bv ? -1 : av > bv ? 1 : 0)
+    })
+  }
+  function thBk(key: string): React.CSSProperties {
+    return { padding: '9px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: bkSort.key === key ? '#2563eb' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }
+  }
+  function arrBk(key: string) { return bkSort.key === key ? (bkSort.dir === 'asc' ? ' ↑' : ' ↓') : ' ↕' }
 
   const s: Record<string, React.CSSProperties> = {
     card: { background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 16, overflow: 'hidden' },
@@ -399,7 +405,7 @@ export default function BulkBookingPage() {
             <div>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>📥 Import Bookings via CSV</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                Required columns: <strong>Date</strong>, <strong>Seat Number</strong>, <strong>EMP ID</strong>, <strong>Full Name</strong>, <strong>Department</strong>, <strong>Shift Name</strong>
+                Required columns: <strong>Date</strong>, <strong>Seat Number</strong>, <strong>EMP ID</strong>, <strong>Full Name</strong>, <strong>Shift Name</strong> · Department auto-filled from your profile
               </div>
             </div>
             <button onClick={downloadTemplate}
@@ -416,7 +422,6 @@ export default function BulkBookingPage() {
                 { col: 'Seat Number', fmt: 'Exact seat number', eg: 'SRL-001' },
                 { col: 'EMP ID',      fmt: 'Employee ID',       eg: 'E1001' },
                 { col: 'Full Name',   fmt: 'Employee full name',eg: 'John Smith' },
-                { col: 'Department',  fmt: 'Department name',   eg: 'Engineering' },
                 { col: 'Shift Name',  fmt: 'Exact shift name',  eg: 'General Shift' },
               ].map(({ col, fmt, eg }) => (
                 <div key={col} style={{ padding: '10px 12px', borderRadius: 9, background: 'var(--muted-bg)', border: '1px solid var(--card-border)' }}>
@@ -465,13 +470,17 @@ export default function BulkBookingPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                        {['#', 'Date', 'Seat', 'EMP ID', 'Full Name', 'Department', 'Shift', 'Status'].map(h => (
-                          <th key={h} style={s.th}>{h}</th>
-                        ))}
+                        <th style={s.th}>#</th>
+                        <th onClick={() => setBkSort(s2 => s2.key==='booking_date'?{key:'booking_date',dir:s2.dir==='asc'?'desc':'asc'}:{key:'booking_date',dir:'asc'})} style={thBk('booking_date')}>Date{arrBk('booking_date')}</th>
+                        <th onClick={() => setBkSort(s2 => s2.key==='seat_number'?{key:'seat_number',dir:s2.dir==='asc'?'desc':'asc'}:{key:'seat_number',dir:'asc'})} style={thBk('seat_number')}>Seat{arrBk('seat_number')}</th>
+                        <th onClick={() => setBkSort(s2 => s2.key==='emp_id'?{key:'emp_id',dir:s2.dir==='asc'?'desc':'asc'}:{key:'emp_id',dir:'asc'})} style={thBk('emp_id')}>EMP ID{arrBk('emp_id')}</th>
+                        <th onClick={() => setBkSort(s2 => s2.key==='emp_name'?{key:'emp_name',dir:s2.dir==='asc'?'desc':'asc'}:{key:'emp_name',dir:'asc'})} style={thBk('emp_name')}>Full Name{arrBk('emp_name')}</th>
+                        <th style={s.th}>Shift</th>
+                        <th onClick={() => setBkSort(s2 => s2.key==='status'?{key:'status',dir:s2.dir==='asc'?'desc':'asc'}:{key:'status',dir:'asc'})} style={thBk('status')}>Status{arrBk('status')}</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {csvRows.map((row, i) => {
+                      {(sortBk(csvRows) as typeof csvRows).map((row, i) => {
                         const sm = ROW_STATUS_META[row.status]
                         const isOk = row.status === 'ok' || row.status === 'ok_overnight'
                         return (
@@ -488,10 +497,7 @@ export default function BulkBookingPage() {
                             <td style={{ ...s.td, maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {(() => { const m = row.booked_for.match(/^(.+?)\s*\[(.+?)\]$/); return m ? m[1] : row.booked_for || <span style={{color:'#dc2626'}}>—</span> })()}
                             </td>
-                            <td style={{ ...s.td, color: row.department_id ? 'var(--ink-700)' : 'var(--muted)' }}>
-                              {row.department_name || '—'}
-                              {row.department_name && !row.department_id && <div style={{ fontSize: 10, color: '#f59e0b' }}>will be blank</div>}
-                            </td>
+
                             <td style={s.td}>
                               {row.shift_name || <span style={{ color: '#dc2626' }}>—</span>}
                               {row.overnight && <div style={{ fontSize: 10, color: '#7c3aed', fontWeight: 600 }}>🌙 overnight</div>}

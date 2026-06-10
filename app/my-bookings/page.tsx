@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   Calendar, Clock, Apple, Monitor, CheckCircle2,
   XCircle, AlertTriangle, Trash2, ChevronRight,
-  ClipboardList, Moon,
+  ClipboardList, Moon, Clock3, DoorOpen,
 } from 'lucide-react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
@@ -432,6 +432,9 @@ export default function MyBookingsPage() {
                       {os && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: OS_META[os].bg, color: OS_META[os].color }}>{OS_META[os].label}</span>}
                       {b.seat?.machine_number != null && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: 'var(--muted-bg)', color: 'var(--muted)', border: '1px solid var(--card-border)' }}>Machine #{b.seat.machine_number}</span>}
                       {d.isOvernightPair && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: '#faf5ff', color: '#7c3aed', border: '1px solid #e9d5ff', display: 'flex', alignItems: 'center', gap: 3 }}><Moon size={9} />Overnight</span>}
+                      {b.approval_status === 'pending' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 700 }}><Clock3 size={9} /> Pending Approval</span>}
+                      {b.approval_status === 'approved' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: '#f0fdf4', color: '#15803d', border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 700 }}><CheckCircle2 size={9} /> Approved</span>}
+                      {b.approval_status === 'rejected' && <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 99, background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: 3, fontWeight: 700 }}><XCircle size={9} /> Rejected</span>}
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', fontSize: 12, color: 'var(--muted)' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
@@ -457,6 +460,11 @@ export default function MyBookingsPage() {
                         </>
                       )}
                     </div>
+                    {b.approval_status === 'rejected' && b.review_note && (
+                      <div style={{ marginTop: 5, fontSize: 11, color: '#dc2626', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 7, padding: '5px 9px', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        💬 Admin note: {b.review_note}
+                      </div>
+                    )}
                   </div>
 
                   {/* Cancel button — only on active (today or upcoming) */}

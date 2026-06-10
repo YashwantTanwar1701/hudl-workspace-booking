@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
 import { OS_META, buildRoomMap, PERMISSIONS } from '../types'
 import type { Seat, Booking, UserProfile, OsType, Room, RoomMap, Department, RolePermission } from '../types'
 
-type Tab = 'overview' | 'seats' | 'bookings' | 'users' | 'departments' | 'zones' | 'permissions'
+type Tab = 'overview' | 'seats' | 'bookings' | 'users' | 'departments' | 'zones' | 'permissions' | 'approvals'
 type BFull = Booking & { seat: Seat; user: UserProfile; department?: Department }
 
 const TABS: { id: Tab; icon: string; label: string }[] = [
@@ -18,6 +18,7 @@ const TABS: { id: Tab; icon: string; label: string }[] = [
   { id: 'departments', icon: '🏬', label: 'Departments' },
   { id: 'zones',       icon: '🗺️', label: 'Zones/Rooms' },
   { id: 'permissions', icon: '🔒', label: 'Permissions' },
+  { id: 'approvals',   icon: '✅', label: 'Approvals'   },
 ]
 
 /* ─── Seat Edit Modal ─── */
@@ -127,18 +128,274 @@ function UserRoleModal({ u, allRoles, onSave, onClose }: {
 }
 
 /* ─── Zones / Rooms Tab ─── */
-function ZonesTab({ rooms, onRename }: {
+/* ─── Approvals Tab ─── */
+type PendingBooking = {
+  id: string
+  booking_date: string
+  start_time: string
+  end_time: string
+  booked_for: string | null
+  created_at: string
+  approval_status: string | null
+  review_note: string | null
+  reviewed_at: string | null
+  seat: { seat_number: string; room_id: number | null } | null
+  user: { name: string | null; email: string | null } | null
+  room_name?: string
+}
+
+function ApprovalsTab({ canApprove, onApprove }: {
+  canApprove: boolean
+  onApprove: (bookingId: string, decision: 'approved' | 'rejected', note: string) => Promise<string | null>
+}) {
+  const [bookings, setBookings] = useState<PendingBooking[]>([])
+  const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<'pending' | 'approved' | 'rejected' | 'all'>('pending')
+  const [reviewModal, setReviewModal] = useState<PendingBooking | null>(null)
+  const [note, setNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [msg, setMsg] = useState('')
+  const { sorted, handleSort, SortIcon, thStyle } = useSortableTable<PendingBooking>(
+    bookings.filter(b => filter === 'all' || b.approval_status === filter)
+  )
+
+  async function fetchPending() {
+    setLoading(true)
+    const { data } = await supabase
+      .from('bookings')
+      .select('id, booking_date, start_time, end_time, booked_for, created_at, approval_status, review_note, reviewed_at, seat:seats(seat_number, room_id), user:users(name, email)')
+      .not('approval_status', 'is', null)
+      .order('created_at', { ascending: false })
+      .range(0, 500)
+    if (data) {
+      // Enrich with room names
+      const { data: rooms } = await supabase.from('room').select('id, name')
+      const roomMap: Record<number, string> = {}
+      rooms?.forEach((r: { id: number; name: string }) => { roomMap[r.id] = r.name })
+      setBookings((data as PendingBooking[]).map(b => ({
+        ...b,
+        room_name: b.seat?.room_id ? roomMap[b.seat.room_id] : 'Unknown',
+      })))
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { fetchPending() }, [])
+
+  async function handleDecision(decision: 'approved' | 'rejected') {
+    if (!reviewModal) return
+    setSubmitting(true)
+    const err = await onApprove(reviewModal.id, decision, note)
+    if (err) setMsg(err)
+    else { setMsg(''); setReviewModal(null); setNote('') }
+    setSubmitting(false)
+  }
+
+  const pendingCount = bookings.filter(b => b.approval_status === 'pending').length
+
+  const statusStyle = (s: string | null) => {
+    if (s === 'pending') return { bg: '#fffbeb', color: '#92400e', border: '#fde68a', label: '⏳ Pending' }
+    if (s === 'approved') return { bg: '#f0fdf4', color: '#15803d', border: '#bbf7d0', label: '✅ Approved' }
+    if (s === 'rejected') return { bg: '#fef2f2', color: '#dc2626', border: '#fecaca', label: '❌ Rejected' }
+    return { bg: 'var(--muted-bg)', color: 'var(--muted)', border: 'var(--card-border)', label: s ?? '—' }
+  }
+
+  const inp = { padding: '8px 11px', borderRadius: 8, border: '1px solid var(--card-border)', fontSize: 13, fontFamily: 'inherit', background: 'var(--muted-bg)', color: 'var(--ink-900)', outline: 'none', boxSizing: 'border-box' as const }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Header stats */}
+      <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+        {([['pending','⏳','#fffbeb','#92400e','#fde68a'],['approved','✅','#f0fdf4','#15803d','#bbf7d0'],['rejected','❌','#fef2f2','#dc2626','#fecaca'],['all','📋','var(--muted-bg)','var(--ink-700)','var(--card-border)']] as const).map(([f, icon, bg, color, border]) => {
+          const cnt = f === 'all' ? bookings.length : bookings.filter(b => b.approval_status === f).length
+          return (
+            <button key={f} onClick={() => setFilter(f)}
+              style={{ padding: '8px 16px', borderRadius: 9, border: `1.5px solid ${filter === f ? color : border}`, background: filter === f ? bg : 'var(--card-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, fontWeight: filter === f ? 700 : 500, color, display: 'flex', alignItems: 'center', gap: 5 }}>
+              {icon} {f.charAt(0).toUpperCase() + f.slice(1)} <span style={{ fontFamily: 'monospace', fontWeight: 800 }}>{cnt}</span>
+            </button>
+          )
+        })}
+        <button onClick={fetchPending} style={{ marginLeft: 'auto', padding: '8px 13px', borderRadius: 9, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12, color: 'var(--ink-700)' }}>🔄 Refresh</button>
+      </div>
+
+      {!canApprove && (
+        <div style={{ padding: '10px 14px', borderRadius: 9, background: '#fef3c7', border: '1px solid #fde68a', fontSize: 13, color: '#92400e' }}>
+          ⚠️ You don't have the <strong>approve_bookings</strong> permission. Go to <strong>Permissions</strong> tab to grant it to your role.
+        </div>
+      )}
+
+      {msg && <div style={{ padding: '10px 14px', borderRadius: 9, background: 'var(--danger-bg)', border: '1px solid var(--danger-border)', color: 'var(--danger)', fontSize: 13 }}>⚠️ {msg}</div>}
+
+      <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--card-border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink-900)' }}>
+            Room Booking Requests
+            {pendingCount > 0 && <span style={{ marginLeft: 8, padding: '2px 9px', borderRadius: 99, background: '#fffbeb', color: '#92400e', border: '1px solid #fde68a', fontSize: 12, fontWeight: 700 }}>{pendingCount} pending</span>}
+          </div>
+        </div>
+        {loading ? (
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>Loading…</div>
+        ) : sorted.length === 0 ? (
+          <div style={{ padding: 32, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No {filter === 'all' ? '' : filter} requests</div>
+        ) : (
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
+                  <th onClick={() => handleSort('room_name' as keyof PendingBooking)} style={thStyle('room_name' as keyof PendingBooking)}>Room <SortIcon col={'room_name' as keyof PendingBooking} /></th>
+                  <th onClick={() => handleSort('user' as keyof PendingBooking)} style={thStyle('user' as keyof PendingBooking)}>Requested By <SortIcon col={'user' as keyof PendingBooking} /></th>
+                  <th onClick={() => handleSort('booking_date' as keyof PendingBooking)} style={thStyle('booking_date' as keyof PendingBooking)}>Date <SortIcon col={'booking_date' as keyof PendingBooking} /></th>
+                  <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Time</th>
+                  <th onClick={() => handleSort('created_at' as keyof PendingBooking)} style={thStyle('created_at' as keyof PendingBooking)}>Requested On <SortIcon col={'created_at' as keyof PendingBooking} /></th>
+                  <th onClick={() => handleSort('approval_status' as keyof PendingBooking)} style={thStyle('approval_status' as keyof PendingBooking)}>Status <SortIcon col={'approval_status' as keyof PendingBooking} /></th>
+                  <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((b, i) => {
+                  const st = statusStyle(b.approval_status)
+                  return (
+                    <tr key={b.id} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
+                      <td style={{ padding: '10px 13px', fontWeight: 600, color: 'var(--ink-900)' }}>{b.room_name}</td>
+                      <td style={{ padding: '10px 13px' }}>
+                        <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-900)' }}>{b.user?.name || '—'}</div>
+                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{b.user?.email || ''}</div>
+                      </td>
+                      <td style={{ padding: '10px 13px', color: 'var(--ink-700)', fontFamily: 'monospace', fontSize: 12 }}>{b.booking_date}</td>
+                      <td style={{ padding: '10px 13px', color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>{b.start_time?.slice(0,5)} – {b.end_time?.slice(0,5)}</td>
+                      <td style={{ padding: '10px 13px', color: 'var(--muted)', fontSize: 12 }}>{new Date(b.created_at).toLocaleDateString('en-IN')}</td>
+                      <td style={{ padding: '10px 13px' }}>
+                        <span style={{ fontSize: 11, padding: '2px 9px', borderRadius: 99, fontWeight: 700, background: st.bg, color: st.color, border: `1px solid ${st.border}` }}>{st.label}</span>
+                        {b.review_note && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>💬 {b.review_note}</div>}
+                      </td>
+                      <td style={{ padding: '10px 13px' }}>
+                        {b.approval_status === 'pending' && canApprove ? (
+                          <button
+                            onClick={() => { setReviewModal(b); setNote('') }}
+                            style={{ padding: '5px 13px', borderRadius: 7, border: 'none', background: '#1e3a5f', color: '#fff', cursor: 'pointer', fontSize: 12, fontFamily: 'inherit', fontWeight: 700 }}
+                          >
+                            Review
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>—</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Review modal */}
+      {reviewModal && (
+        <div onClick={() => !submitting && setReviewModal(null)} style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()} style={{ background: 'var(--card-bg)', borderRadius: 18, width: '100%', maxWidth: 460, boxShadow: '0 24px 64px rgba(0,0,0,0.25)', overflow: 'hidden' }}>
+            <div style={{ padding: '18px 22px', borderBottom: '1px solid var(--card-border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink-900)' }}>Review Room Booking</div>
+              <button onClick={() => setReviewModal(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--ink-300)' }}>×</button>
+            </div>
+            <div style={{ padding: '18px 22px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ padding: '12px 14px', background: 'var(--muted-bg)', borderRadius: 10, border: '1px solid var(--card-border)', fontSize: 13, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                <div><strong>Room:</strong> {reviewModal.room_name}</div>
+                <div><strong>Requested by:</strong> {reviewModal.user?.name || reviewModal.user?.email || '—'}</div>
+                <div><strong>Date:</strong> {reviewModal.booking_date}</div>
+                <div><strong>Time:</strong> {reviewModal.start_time?.slice(0,5)} – {reviewModal.end_time?.slice(0,5)}</div>
+              </div>
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Note (optional)</label>
+                <textarea
+                  value={note}
+                  onChange={e => setNote(e.target.value)}
+                  placeholder="Add a reason or message for the user…"
+                  rows={3}
+                  style={{ ...inp, width: '100%', resize: 'vertical' }}
+                />
+              </div>
+              {msg && <div style={{ padding: '8px 12px', background: 'var(--danger-bg)', border: '1px solid var(--danger-border)', borderRadius: 8, fontSize: 12, color: 'var(--danger)' }}>⚠️ {msg}</div>}
+            </div>
+            <div style={{ padding: '14px 22px', borderTop: '1px solid var(--card-border)', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setReviewModal(null)} disabled={submitting} style={{ padding: '8px 16px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--muted-bg)', cursor: 'pointer', fontFamily: 'inherit', fontSize: 13 }}>Cancel</button>
+              <button onClick={() => handleDecision('rejected')} disabled={submitting} style={{ padding: '8px 16px', borderRadius: 8, border: 'none', background: '#dc2626', color: '#fff', cursor: submitting ? 'wait' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+                {submitting ? '…' : '❌ Reject'}
+              </button>
+              <button onClick={() => handleDecision('approved')} disabled={submitting} style={{ padding: '8px 18px', borderRadius: 8, border: 'none', background: '#15803d', color: '#fff', cursor: submitting ? 'wait' : 'pointer', fontFamily: 'inherit', fontSize: 13, fontWeight: 700 }}>
+                {submitting ? '…' : '✅ Approve'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/* ─── Sortable table hook ─── */
+function useSortableTable<T>(data: T[]) {
+  const [sortKey, setSortKey] = React.useState<keyof T | null>(null)
+  const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc')
+
+  function handleSort(key: keyof T) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+
+  const sorted = React.useMemo(() => {
+    if (!sortKey) return data
+    return [...data].sort((a, b) => {
+      const av = a[sortKey], bv = b[sortKey]
+      const str = (v: unknown) => String(v ?? '').toLowerCase()
+      const cmp = str(av) < str(bv) ? -1 : str(av) > str(bv) ? 1 : 0
+      return sortDir === 'asc' ? cmp : -cmp
+    })
+  }, [data, sortKey, sortDir])
+
+  function SortIcon({ col }: { col: keyof T }) {
+    if (sortKey !== col) return <span style={{ opacity: 0.3, fontSize: 10, marginLeft: 3 }}>↕</span>
+    return <span style={{ fontSize: 10, marginLeft: 3, color: '#2563eb' }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+  }
+
+  function thStyle(col: keyof T): React.CSSProperties {
+    return {
+      padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700,
+      color: sortKey === col ? '#2563eb' : 'var(--muted)',
+      textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap',
+      cursor: 'pointer', userSelect: 'none',
+    }
+  }
+
+  return { sorted, sortKey, sortDir, handleSort, SortIcon, thStyle }
+}
+
+function ZonesTab({ rooms, onRename, onToggleApproval, onToggleRoomBooking }: {
   rooms: Room[]
   onRename: (id: number, name: string) => Promise<string | null>
+  onToggleApproval: (id: number, val: boolean) => Promise<void>
+  onToggleRoomBooking: (id: number, val: boolean) => Promise<void>
 }) {
   const [editId, setEditId] = useState<number | null>(null)
   const [editName, setEditName] = useState('')
   const [saving, setSaving] = useState(false)
   const [localErr, setLocalErr] = useState('')
   const [successId, setSuccessId] = useState<number | null>(null)
+  const [toggling, setToggling] = useState<number | null>(null)
 
   function startEdit(r: Room) { setEditId(r.id); setEditName(r.name); setLocalErr(''); setSuccessId(null) }
   function cancelEdit() { setEditId(null); setLocalErr('') }
+
+  async function handleToggleApproval(room: Room) {
+    setToggling(room.id)
+    await onToggleApproval(room.id, !room.requires_approval)
+    setToggling(null)
+  }
+
+  async function handleToggleRoomBooking(room: Room) {
+    setToggling(room.id)
+    await onToggleRoomBooking(room.id, !room.is_room_booking)
+    setToggling(null)
+  }
 
   async function handleSave(id: number) {
     const name = editName.trim()
@@ -156,7 +413,7 @@ function ZonesTab({ rooms, onRename }: {
     setSaving(false)
   }
 
-  const sorted = [...rooms].sort((a, b) => a.id - b.id)
+  const { sorted, handleSort, SortIcon, thStyle } = useSortableTable<Room>([...rooms].sort((a, b) => a.id - b.id))
   const inp = { padding: '8px 11px', borderRadius: 8, border: '1px solid var(--card-border)', fontSize: 13, fontFamily: 'inherit', background: 'var(--muted-bg)', color: 'var(--ink-900)', outline: 'none', width: '100%', boxSizing: 'border-box' as const }
 
   return (
@@ -173,9 +430,13 @@ function ZonesTab({ rooms, onRename }: {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                {['ID', 'Current Name', 'Capacity', 'Status', 'Action'].map(h => (
-                  <th key={h} style={{ padding: '9px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
+                <th onClick={() => handleSort('id')} style={thStyle('id')}>ID <SortIcon col="id" /></th>
+                <th onClick={() => handleSort('name')} style={thStyle('name')}>Current Name <SortIcon col="name" /></th>
+                <th onClick={() => handleSort('capacity')} style={thStyle('capacity')}>Capacity <SortIcon col="capacity" /></th>
+                <th onClick={() => handleSort('status')} style={thStyle('status')}>Status <SortIcon col="status" /></th>
+                <th style={{ padding: '9px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Requires Approval</th>
+                <th style={{ padding: '9px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Room Booking</th>
+                <th style={{ padding: '9px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Action</th>
               </tr>
             </thead>
             <tbody>
@@ -206,6 +467,26 @@ function ZonesTab({ rooms, onRename }: {
                     <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: room.status ? '#dcfce7' : '#f1f5f9', color: room.status ? '#15803d' : 'var(--muted)' }}>
                       {room.status ? 'Active' : 'Inactive'}
                     </span>
+                  </td>
+                  <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!room.requires_approval}
+                      disabled={toggling === room.id}
+                      onChange={() => handleToggleApproval(room)}
+                      title="Bookings for this room require admin approval"
+                      style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#d97706' }}
+                    />
+                  </td>
+                  <td style={{ padding: '10px 16px', textAlign: 'center' }}>
+                    <input
+                      type="checkbox"
+                      checked={!!room.is_room_booking}
+                      disabled={toggling === room.id}
+                      onChange={() => handleToggleRoomBooking(room)}
+                      title="Book entire room as a single unit (no individual seats)"
+                      style={{ width: 16, height: 16, cursor: 'pointer', accentColor: '#2563eb' }}
+                    />
                   </td>
                   <td style={{ padding: '10px 16px' }}>
                     <div style={{ display: 'flex', gap: 6 }}>
@@ -387,6 +668,34 @@ export default function AdminPage() {
   const [permSaving, setPermSaving] = useState<string | null>(null) // "role|permission" key
   const [permError, setPermError] = useState('')
 
+  // ── Sortable state for admin tables ──
+  const [bkSort, setBkSort] = useState<{ key: string; dir: 'asc'|'desc' }>({ key: '', dir: 'asc' })
+  const [usrSort, setUsrSort] = useState<{ key: string; dir: 'asc'|'desc' }>({ key: '', dir: 'asc' })
+  const [deptSort, setDeptSort] = useState<{ key: string; dir: 'asc'|'desc' }>({ key: '', dir: 'asc' })
+  const [seatSort, setSeatSort] = useState<{ key: string; dir: 'asc'|'desc' }>({ key: '', dir: 'asc' })
+
+  function makeSort<T>(
+    state: { key: string; dir: 'asc'|'desc' },
+    setState: React.Dispatch<React.SetStateAction<{ key: string; dir: 'asc'|'desc' }>>,
+    data: T[]
+  ) {
+    function onSort(k: string) { setState(s => s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'asc' }) }
+    const sorted = state.key ? [...data].sort((a: any, b: any) => {
+      const av = String(a[state.key] ?? '').toLowerCase()
+      const bv = String(b[state.key] ?? '').toLowerCase()
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0
+      return state.dir === 'asc' ? cmp : -cmp
+    }) : data
+    const thS = (k: string): React.CSSProperties => ({
+      padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700,
+      color: state.key === k ? '#2563eb' : 'var(--muted)',
+      textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap',
+      cursor: 'pointer', userSelect: 'none',
+    })
+    const sortArrow = (k: string) => state.key === k ? (state.dir === 'asc' ? ' ↑' : ' ↓') : ' ↕'
+    return { sorted, onSort, thS, sortArrow }
+  }
+
   async function togglePermission(role: string, permission: string, current: boolean) {
     const key = `${role}|${permission}`
     setPermSaving(key)
@@ -437,6 +746,13 @@ export default function AdminPage() {
     }
     return true
   })
+
+  // Sortable versions
+  const { sorted: sortedBookings, onSort: onBkSort, thS: thBk, sortArrow: bkArrow } = makeSort(bkSort, setBkSort, filteredBookings)
+  const { sorted: sortedUsers, onSort: onUsrSort, thS: thUsr, sortArrow: usrArrow } = makeSort(usrSort, setUsrSort, filteredUsers)
+  const { sorted: sortedDepts, onSort: onDeptSort, thS: thDept, sortArrow: deptArrow } = makeSort(deptSort, setDeptSort, departments)
+  const { sorted: sortedSeats, onSort: onSeatSort, thS: thSeat, sortArrow: seatArrow } = makeSort(seatSort, setSeatSort, filteredSeats)
+
 
   const inp = (extra?: object) => ({ padding:'6px 10px', borderRadius:7, border:'1px solid var(--card-border)', fontSize:12, fontFamily:'inherit', background:'var(--muted-bg)', color:'var(--ink-900)', outline:'none', ...extra } as React.CSSProperties)
 
@@ -534,10 +850,16 @@ export default function AdminPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead><tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                    {['Seat #','Room','OS','Machine','Status','Notes','Actions'].map(h => <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>)}
+                    <th onClick={() => onSeatSort('seat_number')} style={thSeat('seat_number')}>Seat #{seatArrow('seat_number')}</th>
+                    <th onClick={() => onSeatSort('room_id')} style={thSeat('room_id')}>Room{seatArrow('room_id')}</th>
+                    <th onClick={() => onSeatSort('os_type')} style={thSeat('os_type')}>OS{seatArrow('os_type')}</th>
+                    <th onClick={() => onSeatSort('machine_number')} style={thSeat('machine_number')}>Machine{seatArrow('machine_number')}</th>
+                    <th onClick={() => onSeatSort('is_active')} style={thSeat('is_active')}>Status{seatArrow('is_active')}</th>
+                    <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Notes</th>
+                    <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Actions</th>
                   </tr></thead>
                   <tbody>
-                    {filteredSeats.map((seat, i) => (
+                    {sortedSeats.map((seat, i) => (
                       <tr key={seat.id} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
                         <td style={{ padding: '9px 13px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--ink-900)' }}>{seat.seat_number}</td>
                         <td style={{ padding: '9px 13px', color: 'var(--ink-700)', fontSize: 12 }}>{roomMap[seat.room_id!]?.name || '—'}</td>
@@ -553,7 +875,7 @@ export default function AdminPage() {
                         </td>
                       </tr>
                     ))}
-                    {filteredSeats.length === 0 && <tr><td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No seats found</td></tr>}
+                    {sortedSeats.length === 0 && <tr><td colSpan={7} style={{ padding: 28, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No seats found</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -577,11 +899,20 @@ export default function AdminPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead><tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                    <th style={{ padding: '9px 13px', width: 36 }}><input type="checkbox" onChange={e => setSelectedBookings(e.target.checked ? filteredBookings.filter(b => b.status === 'active').map(b => b.id) : [])} /></th>
-                    {['Seat','Room','User','Booked For','Dept','Date','Time','Status','Action'].map(h => <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>{h}</th>)}
+                    <th style={{ padding: '9px 13px', width: 36 }}><input type="checkbox" onChange={e => setSelectedBookings(e.target.checked ? sortedBookings.filter(b => b.status === 'active').map(b => b.id) : [])} /></th>
+                    <th onClick={() => onBkSort('seat')} style={thBk('seat')}>Seat{bkArrow('seat')}</th>
+                    <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Room</th>
+                    <th onClick={() => onBkSort('user')} style={thBk('user')}>User{bkArrow('user')}</th>
+                    <th onClick={() => onBkSort('booked_for')} style={thBk('booked_for')}>Booked For{bkArrow('booked_for')}</th>
+                    <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Dept</th>
+                    <th onClick={() => onBkSort('booking_date')} style={thBk('booking_date')}>Date{bkArrow('booking_date')}</th>
+                    <th onClick={() => onBkSort('start_time')} style={thBk('start_time')}>Time{bkArrow('start_time')}</th>
+                    <th onClick={() => onBkSort('status')} style={thBk('status')}>Status{bkArrow('status')}</th>
+                    <th onClick={() => onBkSort('approval_status')} style={thBk('approval_status')}>Approval{bkArrow('approval_status')}</th>
+                    <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Action</th>
                   </tr></thead>
                   <tbody>
-                    {filteredBookings.map((b, i) => (
+                    {sortedBookings.map((b, i) => (
                       <tr key={b.id} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
                         <td style={{ padding: '9px 13px' }}>{b.status === 'active' && <input type="checkbox" checked={selectedBookings.includes(b.id)} onChange={e => setSelectedBookings(p => e.target.checked ? [...p, b.id] : p.filter(x => x !== b.id))} />}</td>
                         <td style={{ padding: '9px 13px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--ink-900)' }}>{b.seat?.seat_number||'—'}</td>
@@ -592,10 +923,14 @@ export default function AdminPage() {
                         <td style={{ padding: '9px 13px', color: 'var(--ink-700)', fontSize: 12 }}>{b.booking_date}</td>
                         <td style={{ padding: '9px 13px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{b.start_time?.slice(0,5)} – {b.end_time?.slice(0,5)}</td>
                         <td style={{ padding: '9px 13px' }}><span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: b.status === 'active' ? '#dcfce7' : '#f1f5f9', color: b.status === 'active' ? '#15803d' : 'var(--muted)' }}>{b.status}</span></td>
+                        <td style={{ padding: '9px 13px' }}>
+                          {b.approval_status && <span style={{ fontSize: 11, padding: '2px 8px', borderRadius: 99, fontWeight: 600, background: b.approval_status === 'pending' ? '#fffbeb' : b.approval_status === 'approved' ? '#f0fdf4' : '#fef2f2', color: b.approval_status === 'pending' ? '#92400e' : b.approval_status === 'approved' ? '#15803d' : '#dc2626' }}>{b.approval_status}</span>}
+                          {!b.approval_status && <span style={{ color: 'var(--ink-300)', fontSize: 11 }}>—</span>}
+                        </td>
                         <td style={{ padding: '9px 13px' }}>{b.status === 'active' && <button onClick={() => setCancelConfirm({ ids: [b.id], label: `${b.seat?.seat_number || 'seat'} on ${b.booking_date} for ${b.booked_for || b.user?.name || 'user'}` })} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid #fecaca', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit' }}>Cancel</button>}</td>
                       </tr>
                     ))}
-                    {filteredBookings.length === 0 && <tr><td colSpan={10} style={{ padding: 28, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No bookings found</td></tr>}
+                    {sortedBookings.length === 0 && <tr><td colSpan={11} style={{ padding: 28, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No bookings found</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -617,10 +952,14 @@ export default function AdminPage() {
               <div style={{ overflowX: 'auto' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                   <thead><tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                    {['Name','Email','Role','Joined','Action'].map(h => <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>)}
+                    <th onClick={() => onUsrSort('name')} style={thUsr('name')}>Name{usrArrow('name')}</th>
+                    <th onClick={() => onUsrSort('email')} style={thUsr('email')}>Email{usrArrow('email')}</th>
+                    <th onClick={() => onUsrSort('role')} style={thUsr('role')}>Role{usrArrow('role')}</th>
+                    <th onClick={() => onUsrSort('created_at')} style={thUsr('created_at')}>Joined{usrArrow('created_at')}</th>
+                    <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Action</th>
                   </tr></thead>
                   <tbody>
-                    {filteredUsers.map((u, i) => (
+                    {sortedUsers.map((u, i) => (
                       <tr key={u.id} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
                         <td style={{ padding: '9px 13px', fontWeight: 600, color: 'var(--ink-900)' }}>{u.name||'—'}</td>
                         <td style={{ padding: '9px 13px', color: 'var(--ink-700)' }}>{u.email}</td>
@@ -629,7 +968,7 @@ export default function AdminPage() {
                         <td style={{ padding: '9px 13px' }}><button onClick={() => setUserModal(u)} style={{ padding: '4px 10px', borderRadius: 6, border: '1px solid var(--card-border)', background: 'var(--card-bg)', cursor: 'pointer', fontSize: 11, fontFamily: 'inherit', color: 'var(--ink-700)' }}>Edit Role</button></td>
                       </tr>
                     ))}
-                    {filteredUsers.length === 0 && <tr><td colSpan={5} style={{ padding: 28, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No users found</td></tr>}
+                    {sortedUsers.length === 0 && <tr><td colSpan={5} style={{ padding: 28, textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>No users found</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -658,10 +997,13 @@ export default function AdminPage() {
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--card-border)', borderRadius: 13, overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead><tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                  {['#','Department Name','Created','Delete'].map(h => <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>)}
+                  <th onClick={() => onDeptSort('id')} style={thDept('id')}>#<span style={{ marginLeft: 3, fontSize: 10 }}>{deptArrow('id')}</span></th>
+                  <th onClick={() => onDeptSort('name')} style={thDept('name')}>Department Name{deptArrow('name')}</th>
+                  <th onClick={() => onDeptSort('created_at')} style={thDept('created_at')}>Created{deptArrow('created_at')}</th>
+                  <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Delete</th>
                 </tr></thead>
                 <tbody>
-                  {departments.map((d, i) => (
+                  {sortedDepts.map((d, i) => (
                     <tr key={d.id} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)' }}>
                       <td style={{ padding: '9px 13px', color: 'var(--muted)', fontFamily: 'monospace' }}>{d.id}</td>
                       <td style={{ padding: '9px 13px', fontWeight: 600, color: 'var(--ink-900)' }}>{d.name}</td>
@@ -680,7 +1022,16 @@ export default function AdminPage() {
 
         {/* ── ZONES / ROOMS ── */}
         {!loading && tab === 'zones' && (
-          <ZonesTab rooms={rooms} onRename={async (id, name) => {
+          <ZonesTab rooms={rooms}
+            onToggleApproval={async (id, val) => {
+              await supabase.from('room').update({ requires_approval: val }).eq('id', id)
+              setRooms(prev => prev.map(r => r.id === id ? { ...r, requires_approval: val } : r))
+            }}
+            onToggleRoomBooking={async (id, val) => {
+              await supabase.from('room').update({ is_room_booking: val }).eq('id', id)
+              setRooms(prev => prev.map(r => r.id === id ? { ...r, is_room_booking: val } : r))
+            }}
+            onRename={async (id, name) => {
             // Attempt the update
             const { error } = await supabase
               .from('room')
@@ -706,6 +1057,23 @@ export default function AdminPage() {
             setRoomMap(prev => ({ ...prev, [id]: { ...prev[id], name } }))
             return null
           }} />
+        )}
+
+        {/* ── APPROVALS ── */}
+        {!loading && tab === 'approvals' && (
+          <ApprovalsTab
+            canApprove={getPermission(profile?.role || '', 'approve_bookings')}
+            onApprove={async (bookingId, decision, note) => {
+              const { error } = await supabase.rpc('admin_review_booking', {
+                p_booking_id: bookingId,
+                p_decision: decision,
+                p_note: note || null,
+              })
+              if (error) return error.message
+              await fetchAll()
+              return null
+            }}
+          />
         )}
 
         {/* ── PERMISSIONS ── */}

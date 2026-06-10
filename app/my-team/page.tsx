@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../components/AuthProvider'
@@ -82,6 +82,18 @@ export default function MyTeamPage() {
 
   const [members, setMembers]       = useState<TeamMember[]>([])
   const [loading, setLoading]       = useState(true)
+  const [memberSort, setMemberSort] = useState({ key: '', dir: 'asc' as 'asc'|'desc' })
+  function sortMembers(data: TeamMember[]) {
+    if (!memberSort.key) return data
+    return [...data].sort((a: any, b: any) => {
+      const av = String(a[memberSort.key] ?? '').toLowerCase(), bv = String(b[memberSort.key] ?? '').toLowerCase()
+      return (memberSort.dir === 'asc' ? 1 : -1) * (av < bv ? -1 : av > bv ? 1 : 0)
+    })
+  }
+  function thMem(key: string): React.CSSProperties {
+    return { padding: '8px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: memberSort.key === key ? '#2563eb' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', cursor: 'pointer', userSelect: 'none' }
+  }
+  function arrM(key: string) { return memberSort.key === key ? (memberSort.dir === 'asc' ? ' ↑' : ' ↓') : ' ↕' }
   const [empId, setEmpId]           = useState('')
   const [empName, setEmpName]       = useState('')
   const [empEmail, setEmpEmail]     = useState('')
@@ -328,13 +340,15 @@ export default function MyTeamPage() {
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
                     <thead>
                       <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
-                        {['#', 'EMP ID', 'Full Name', 'Email', 'Status'].map(h => (
-                          <th key={h} style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{h}</th>
-                        ))}
+                        <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>#</th>
+                        <th onClick={() => setMemberSort(s => s.key==='emp_id'?{key:'emp_id',dir:s.dir==='asc'?'desc':'asc'}:{key:'emp_id',dir:'asc'})} style={thMem('emp_id')}>EMP ID{arrM('emp_id')}</th>
+                        <th onClick={() => setMemberSort(s => s.key==='emp_name'?{key:'emp_name',dir:s.dir==='asc'?'desc':'asc'}:{key:'emp_name',dir:'asc'})} style={thMem('emp_name')}>Full Name{arrM('emp_name')}</th>
+                        <th onClick={() => setMemberSort(s => s.key==='email'?{key:'email',dir:s.dir==='asc'?'desc':'asc'}:{key:'email',dir:'asc'})} style={thMem('email')}>Email{arrM('email')}</th>
+                        <th style={{ padding: '8px 14px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Status</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {csvRows.map((row, i) => {
+                      {(sortMembers(csvRows as any) as typeof csvRows).map((row, i) => {
                         const s = STATUS_META[row.status]
                         return (
                           <tr key={i} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)', opacity: row.status !== 'ok' ? 0.6 : 1 }}>
