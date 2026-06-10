@@ -83,7 +83,7 @@ export default function MyTeamPage() {
   const [members, setMembers]       = useState<TeamMember[]>([])
   const [loading, setLoading]       = useState(true)
   const [memberSort, setMemberSort] = useState({ key: '', dir: 'asc' as 'asc'|'desc' })
-  function sortMembers(data: TeamMember[]) {
+  function sortMembers<T>(data: T[]): T[] {
     if (!memberSort.key) return data
     return [...data].sort((a: any, b: any) => {
       const av = String(a[memberSort.key] ?? '').toLowerCase(), bv = String(b[memberSort.key] ?? '').toLowerCase()
@@ -348,7 +348,7 @@ export default function MyTeamPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {(sortMembers(csvRows as any) as typeof csvRows).map((row, i) => {
+                      {sortMembers(csvRows).map((row, i) => {
                         const s = STATUS_META[row.status]
                         return (
                           <tr key={i} style={{ borderBottom: '1px solid var(--card-border)', background: i % 2 === 0 ? 'var(--card-bg)' : 'var(--muted-bg)', opacity: row.status !== 'ok' ? 0.6 : 1 }}>
