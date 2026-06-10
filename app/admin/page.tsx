@@ -135,6 +135,7 @@ type PendingBooking = {
   start_time: string
   end_time: string
   booked_for: string | null
+  notes: string | null          // user-supplied booking reason
   created_at: string
   approval_status: string | null
   review_note: string | null
@@ -163,7 +164,7 @@ function ApprovalsTab({ canApprove, onApprove }: {
     setLoading(true)
     const { data } = await supabase
       .from('bookings')
-      .select('id, booking_date, start_time, end_time, booked_for, created_at, approval_status, review_note, reviewed_at, seat:seats(seat_number, room_id), user:users(name, email)')
+      .select('id, booking_date, start_time, end_time, booked_for, notes, created_at, approval_status, review_note, reviewed_at, seat:seats(seat_number, room_id), user:users(name, email)')
       .not('approval_status', 'is', null)
       .order('created_at', { ascending: false })
       .range(0, 500)
@@ -172,10 +173,22 @@ function ApprovalsTab({ canApprove, onApprove }: {
       const { data: rooms } = await supabase.from('room').select('id, name')
       const roomMap: Record<number, string> = {}
       rooms?.forEach((r: { id: number; name: string }) => { roomMap[r.id] = r.name })
-      setBookings((data as PendingBooking[]).map(b => ({
-        ...b,
-        room_name: b.seat?.room_id ? roomMap[b.seat.room_id] : 'Unknown',
-      })))
+      // Supabase returns joined relations as arrays — normalise to single object
+      const normalised = (data as unknown[]).map((raw: unknown) => {
+        const b = raw as Record<string, unknown>
+        const seatArr = b.seat as { seat_number: string; room_id: number | null }[] | null
+        const userArr = b.user as { name: string | null; email: string | null }[] | null
+        const seat = Array.isArray(seatArr) ? (seatArr[0] ?? null) : seatArr
+        const user = Array.isArray(userArr) ? (userArr[0] ?? null) : userArr
+        const roomId = seat?.room_id ?? null
+        return {
+          ...b,
+          seat,
+          user,
+          room_name: roomId ? (roomMap[roomId] ?? 'Unknown') : 'Unknown',
+        } as PendingBooking
+      })
+      setBookings(normalised)
     }
     setLoading(false)
   }
@@ -244,6 +257,7 @@ function ApprovalsTab({ canApprove, onApprove }: {
                 <tr style={{ background: 'var(--muted-bg)', borderBottom: '1px solid var(--card-border)' }}>
                   <th onClick={() => handleSort('room_name' as keyof PendingBooking)} style={thStyle('room_name' as keyof PendingBooking)}>Room <SortIcon col={'room_name' as keyof PendingBooking} /></th>
                   <th onClick={() => handleSort('user' as keyof PendingBooking)} style={thStyle('user' as keyof PendingBooking)}>Requested By <SortIcon col={'user' as keyof PendingBooking} /></th>
+                  <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Reason / Notes</th>
                   <th onClick={() => handleSort('booking_date' as keyof PendingBooking)} style={thStyle('booking_date' as keyof PendingBooking)}>Date <SortIcon col={'booking_date' as keyof PendingBooking} /></th>
                   <th style={{ padding: '9px 13px', textAlign: 'left', fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', whiteSpace: 'nowrap' }}>Time</th>
                   <th onClick={() => handleSort('created_at' as keyof PendingBooking)} style={thStyle('created_at' as keyof PendingBooking)}>Requested On <SortIcon col={'created_at' as keyof PendingBooking} /></th>
@@ -260,6 +274,12 @@ function ApprovalsTab({ canApprove, onApprove }: {
                       <td style={{ padding: '10px 13px' }}>
                         <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink-900)' }}>{b.user?.name || '—'}</div>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>{b.user?.email || ''}</div>
+                      </td>
+                      <td style={{ padding: '10px 13px', maxWidth: 200 }}>
+                        {b.notes
+                          ? <span style={{ fontSize: 12, color: 'var(--ink-700)', fontStyle: 'italic' }}>"{b.notes}"</span>
+                          : <span style={{ fontSize: 11, color: 'var(--ink-300)' }}>—</span>
+                        }
                       </td>
                       <td style={{ padding: '10px 13px', color: 'var(--ink-700)', fontFamily: 'monospace', fontSize: 12 }}>{b.booking_date}</td>
                       <td style={{ padding: '10px 13px', color: 'var(--muted)', fontSize: 12, whiteSpace: 'nowrap' }}>{b.start_time?.slice(0,5)} – {b.end_time?.slice(0,5)}</td>
@@ -303,6 +323,14 @@ function ApprovalsTab({ canApprove, onApprove }: {
                 <div><strong>Requested by:</strong> {reviewModal.user?.name || reviewModal.user?.email || '—'}</div>
                 <div><strong>Date:</strong> {reviewModal.booking_date}</div>
                 <div><strong>Time:</strong> {reviewModal.start_time?.slice(0,5)} – {reviewModal.end_time?.slice(0,5)}</div>
+                {reviewModal.notes && (
+                  <div style={{ marginTop: 4, paddingTop: 8, borderTop: '1px solid var(--card-border)' }}>
+                    <strong>Reason / Notes:</strong>
+                    <div style={{ marginTop: 4, padding: '7px 10px', background: 'var(--card-bg)', borderRadius: 7, border: '1px solid var(--card-border)', fontSize: 12, color: 'var(--ink-700)', fontStyle: 'italic', lineHeight: 1.5 }}>
+                      "{reviewModal.notes}"
+                    </div>
+                  </div>
+                )}
               </div>
               <div>
                 <label style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', display: 'block', marginBottom: 5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Note (optional)</label>

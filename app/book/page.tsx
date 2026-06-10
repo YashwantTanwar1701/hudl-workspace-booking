@@ -104,6 +104,7 @@ function RoomInfoTooltip({ message }: { message: string }) {
 function RoomBookingCard({
   lane, dbSeats, bookedIds, myIds, selectedIds, onToggle,
   highlighted, cardRef, roomNames, requiresApproval,
+  roomNotesMap, onNoteChange,
 }: {
   lane: LaneSpec
   dbSeats: Seat[]
@@ -115,6 +116,8 @@ function RoomBookingCard({
   cardRef: (el: HTMLDivElement | null) => void
   roomNames: Record<number, string>
   requiresApproval: boolean
+  roomNotesMap: Record<string, string>
+  onNoteChange: (seatId: string, note: string) => void
 }) {
   const { theme } = useTheme()
   const cardBg = theme === 'dark' ? lane.darkBgColor : lane.bgColor
@@ -174,8 +177,8 @@ function RoomBookingCard({
         </div>
       </div>
 
-      {/* Body: centered SVG tile only */}
-      <div style={{ padding: '18px 16px', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+      {/* Body: centered SVG tile + notes textarea when selected */}
+      <div style={{ padding: '14px 16px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
         <div
           onClick={() => canBook && seat && onToggle(seat)}
           title={!seat ? 'No seat configured in DB for this room' : canBook ? `Click to ${isSelected ? 'deselect' : 'book'} ${name}` : undefined}
@@ -187,6 +190,7 @@ function RoomBookingCard({
             cursor: canBook ? 'pointer' : 'default',
             transition: 'all 0.15s',
             boxShadow: isSelected ? `0 0 0 3px ${lane.accentColor}33` : 'none',
+            flexShrink: 0,
           }}
         >
           {isSelected
@@ -200,6 +204,29 @@ function RoomBookingCard({
                   : <DoorOpen size={40} color={isInactive ? '#cbd5e1' : lane.accentColor} style={{ opacity: isInactive ? 0.45 : 1 }} />
           }
         </div>
+
+        {/* Notes textarea — only shown when this room is selected */}
+        {isSelected && seat && (
+          <div style={{ width: '100%' }}>
+            <label style={{ display: 'block', fontSize: 10, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>
+              Reason / Notes {requiresApproval && <span style={{ color: '#d97706' }}>(helps admin approve faster)</span>}
+            </label>
+            <textarea
+              value={roomNotesMap[seat.id] || ''}
+              onChange={e => onNoteChange(seat!.id, e.target.value)}
+              placeholder={requiresApproval ? 'Why do you need this room? (e.g. Client call, Team review…)' : 'Optional notes for this booking…'}
+              rows={2}
+              style={{
+                width: '100%', padding: '8px 10px', borderRadius: 8,
+                border: `1.5px solid ${requiresApproval && !roomNotesMap[seat.id]?.trim() ? '#fde68a' : 'var(--card-border)'}`,
+                fontSize: 12, fontFamily: 'inherit', resize: 'vertical',
+                background: 'var(--muted-bg)', color: 'var(--ink-900)',
+                outline: 'none', boxSizing: 'border-box' as const,
+                colorScheme: 'light dark' as const,
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   )
@@ -918,6 +945,7 @@ function BookInner() {
   const [wellnessConfirmOpen, setWellnessConfirmOpen] = useState(false)
   // Per-seat booked_for: seatId → emp label ("emp_name emp_id" or custom)
   const [bookedForMap, setBookedForMap] = useState<Record<string, string>>({})
+  const [roomNotesMap, setRoomNotesMap] = useState<Record<string, string>>({})  // seatId → booking note for room bookings
   // Single department for entire booking
   const [departmentId, setDepartmentId] = useState<number | null>(null)
   // Team member management
@@ -1083,7 +1111,8 @@ function BookInner() {
       const bf = enrichedForMap[seat.id]?.trim() || ''
       const lane = LANES.find(l => l.roomId != null && l.roomId === seat.room_id)
       const needsApproval = (lane?.requiresApproval || (seat.room_id != null && roomMap[seat.room_id]?.requires_approval)) ?? false
-      const base = { booked_for: bf, department_id: departmentId || null, shift_id: selectedShiftId, approval_status: needsApproval ? 'pending' : null }
+      const seatNote = roomNotesMap[seat.id]?.trim() || null
+      const base = { booked_for: bf, department_id: departmentId || null, shift_id: selectedShiftId, approval_status: needsApproval ? 'pending' : null, notes: seatNote }
       // Single row for both normal and overnight bookings.
       return [{
         user_id: user.id,
@@ -1102,7 +1131,7 @@ function BookInner() {
     })
     const { error: err } = await supabase.from('bookings').insert(inserts)
     if (err) setError(err.message.includes('overlap') ? 'One or more seats conflict with existing bookings.' : err.message)
-    else { setSuccess(true); setSuccessHasApproval(hasApprovalRequired); setConfirmOpen(false); setWellnessConfirmOpen(false); setSelectedIds(new Set()); setBookedForMap({}); setDepartmentId(profile?.default_department_id ?? null); await fetchBookings() }
+    else { setSuccess(true); setSuccessHasApproval(hasApprovalRequired); setConfirmOpen(false); setWellnessConfirmOpen(false); setSelectedIds(new Set()); setBookedForMap({}); setRoomNotesMap({}); setRoomNotesMap({}); setDepartmentId(profile?.default_department_id ?? null); await fetchBookings() }
     setSubmitting(false)
   }
 
@@ -1269,6 +1298,8 @@ function BookInner() {
                   highlighted={highlightedLaneId === lane.id}
                   cardRef={setLaneRef(lane.id)}
                   requiresApproval={needsApproval}
+                  roomNotesMap={roomNotesMap}
+                  onNoteChange={(seatId, note) => setRoomNotesMap(prev => ({ ...prev, [seatId]: note }))}
                 />
               ) : (
                 <LaneBookingCard
@@ -1448,7 +1479,7 @@ function BookInner() {
                     {hasDuplicates ? '⚠️ Each seat must have a different person' : !allSeatsNamed ? 'Assign a member to each seat' : ''}
                   </div>
                 )}
-                <button onClick={() => { setSelectedIds(new Set()); setBookedForMap({}) }} style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
+                <button onClick={() => { setSelectedIds(new Set()); setBookedForMap({}); setRoomNotesMap({}) }} style={{ width: '100%', padding: '6px', borderRadius: 8, border: '1px solid var(--card-border)', background: 'var(--card-bg)', color: 'var(--muted)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4 }}>
                   <X size={11} /> Clear all
                 </button>
               </div>
